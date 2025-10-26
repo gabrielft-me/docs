@@ -1,0 +1,34 @@
+---
+title: 'Token Management'
+description: 'Understanding access tokens, refresh tokens, and token lifecycle'
+---
+
+## Token Types
+
+Auth-Agent issues two types of tokens:
+
+<CardGroup cols={2}>
+  <Card title="Access Token" icon="key">
+    Short-lived JWT for API access (1 hour)
+  </Card>
+  <Card title="Refresh Token" icon="arrows-rotate">
+    Long-lived token for refreshing access (30 days)
+  </Card>
+</CardGroup>
+
+## Token Lifecycle
+
+Access tokens automatically refresh before expiration with the SDK.
+
+```typescript
+import { useAuth } from 'ai-auth';
+
+function MyComponent() {
+  const { getAccessToken } = useAuth();
+  
+  // Always returns valid token (auto-refreshes if needed)
+  const token = getAccessToken();
+}
+```
+
+[Documentation in progress...]

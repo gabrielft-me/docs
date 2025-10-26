@@ -1,0 +1,179 @@
+{
+  "name": "Auth-Agent",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#6366f1",
+    "light": "#818cf8",
+    "dark": "#4f46e5",
+    "background": {
+      "dark": "#0f172a"
+    },
+    "anchors": {
+      "from": "#6366f1",
+      "to": "#818cf8"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Support",
+      "url": "mailto:support@auth-agent.com"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://auth-agent.com"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "SDK Docs",
+      "url": "sdk"
+    },
+    {
+      "name": "Examples",
+      "url": "examples"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/auth-agent/auth-agent"
+    },
+    {
+      "name": "NPM",
+      "icon": "npm",
+      "url": "https://npmjs.com/package/ai-auth"
+    },
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://discord.gg/auth-agent"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "installation",
+        "authentication-flow"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "concepts/oauth",
+        "concepts/pkce",
+        "concepts/tokens",
+        "concepts/security"
+      ]
+    },
+    {
+      "group": "React SDK",
+      "pages": [
+        "sdk/react/getting-started",
+        "sdk/react/auth-provider",
+        "sdk/react/hooks",
+        "sdk/react/components",
+        "sdk/react/protected-routes"
+      ]
+    },
+    {
+      "group": "JavaScript SDK",
+      "pages": [
+        "sdk/javascript/getting-started",
+        "sdk/javascript/configuration",
+        "sdk/javascript/agent-sdk",
+        "sdk/javascript/token-manager",
+        "sdk/javascript/utilities",
+        "sdk/javascript/types"
+      ]
+    },
+    {
+      "group": "Python SDK",
+      "pages": [
+        "sdk/python/getting-started",
+        "sdk/python/client",
+        "sdk/python/methods"
+      ]
+    },
+    {
+      "group": "Components",
+      "pages": [
+        "components/sign-in-button",
+        "components/auth-provider",
+        "components/protected-route"
+      ]
+    },
+    {
+      "group": "API Documentation",
+      "pages": [
+        "api-reference/overview",
+        "api-reference/authentication",
+        "api-reference/oauth",
+        "api-reference/agents",
+        "api-reference/tokens"
+      ]
+    },
+    {
+      "group": "OAuth Endpoints",
+      "pages": [
+        "api-reference/oauth/authorize",
+        "api-reference/oauth/token",
+        "api-reference/oauth/userinfo",
+        "api-reference/oauth/discovery"
+      ]
+    },
+    {
+      "group": "Agent Endpoints",
+      "pages": [
+        "api-reference/agents/register",
+        "api-reference/agents/authenticate",
+        "api-reference/agents/profile"
+      ]
+    },
+    {
+      "group": "Examples",
+      "pages": [
+        "examples/overview",
+        "examples/react-spa",
+        "examples/nextjs",
+        "examples/vanilla-js",
+        "examples/python-cli"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/registration",
+        "guides/token-refresh",
+        "guides/error-handling",
+        "guides/deployment"
+      ]
+    },
+    {
+      "group": "Advanced",
+      "pages": [
+        "advanced/custom-storage",
+        "advanced/server-side",
+        "advanced/multi-tab-sync",
+        "advanced/testing"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/auth-agent/auth-agent",
+    "twitter": "https://twitter.com/authagent",
+    "linkedin": "https://www.linkedin.com/company/auth-agent"
+  }
+}
+

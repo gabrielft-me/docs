@@ -1,0 +1,338 @@
+---
+title: "Token Exchange"
+api: "POST /oauth2/token"
+description: "Exchange authorization code for tokens or refresh an access token"
+---
+
+## Endpoint
+
+```
+POST /oauth2/token
+```
+
+## Content Type
+
+```
+application/x-www-form-urlencoded
+```
+
+## Grant Types
+
+This endpoint supports two grant types:
+
+1. **authorization_code** - Exchange authorization code for tokens
+2. **refresh_token** - Refresh an expired access token
+
+---
+
+## Authorization Code Grant
+
+Exchange an authorization code for access and refresh tokens.
+
+### Request Parameters
+
+<ParamField body="grant_type" type="string" required>
+  Must be `authorization_code`
+</ParamField>
+
+<ParamField body="code" type="string" required>
+  The authorization code received from `/oauth2/authorize`
+</ParamField>
+
+<ParamField body="client_id" type="string" required>
+  Your agent ID (obtained during registration)
+</ParamField>
+
+<ParamField body="redirect_uri" type="string" required>
+  Must exactly match the redirect_uri used in authorization request
+</ParamField>
+
+<ParamField body="code_verifier" type="string" required>
+  The PKCE code verifier (OAuth 2.1 requirement)
+</ParamField>
+
+<ParamField body="client_secret" type="string">
+  Optional for public clients. Required for confidential clients.
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.auth-agent.com/oauth2/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code" \
+  -d "code=AUTH_CODE_HERE" \
+  -d "client_id=your_agent_id" \
+  -d "redirect_uri=http://localhost:3000/callback" \
+  -d "code_verifier=PKCE_VERIFIER_HERE"
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.auth-agent.com/oauth2/token", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code: "AUTH_CODE_HERE",
+    client_id: "your_agent_id",
+    redirect_uri: "http://localhost:3000/callback",
+    code_verifier: "PKCE_VERIFIER_HERE",
+  }),
+});
+
+const tokens = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auth-agent.com/oauth2/token',
+    data={
+        'grant_type': 'authorization_code',
+        'code': 'AUTH_CODE_HERE',
+        'client_id': 'your_agent_id',
+        'redirect_uri': 'http://localhost:3000/callback',
+        'code_verifier': 'PKCE_VERIFIER_HERE',
+    }
+)
+
+tokens = response.json()
+```
+
+</CodeGroup>
+
+### Success Response
+
+<ResponseField name="access_token" type="string">
+  JWT access token for making authenticated API requests
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Always `Bearer`
+</ResponseField>
+
+<ResponseField name="expires_in" type="number">
+  Token lifetime in seconds (typically 3600 = 1 hour)
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string">
+  Long-lived token for refreshing the access token
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  Space-separated list of granted scopes
+</ResponseField>
+
+```json Response
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "scope": "openid profile email"
+}
+```
+
+---
+
+## Refresh Token Grant
+
+Refresh an expired access token using a refresh token.
+
+### Request Parameters
+
+<ParamField body="grant_type" type="string" required>
+  Must be `refresh_token`
+</ParamField>
+
+<ParamField body="refresh_token" type="string" required>
+  The refresh token received from a previous token response
+</ParamField>
+
+<ParamField body="client_id" type="string" required>
+  Your agent ID
+</ParamField>
+
+<ParamField body="client_secret" type="string">
+  Optional for public clients
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.auth-agent.com/oauth2/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "refresh_token=REFRESH_TOKEN_HERE" \
+  -d "client_id=your_agent_id"
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.auth-agent.com/oauth2/token", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  body: new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: "REFRESH_TOKEN_HERE",
+    client_id: "your_agent_id",
+  }),
+});
+
+const tokens = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auth-agent.com/oauth2/token',
+    data={
+        'grant_type': 'refresh_token',
+        'refresh_token': 'REFRESH_TOKEN_HERE',
+        'client_id': 'your_agent_id',
+    }
+)
+
+tokens = response.json()
+```
+
+</CodeGroup>
+
+### Success Response
+
+```json Response
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "openid profile email"
+}
+```
+
+<Note>
+  Refresh tokens are **not** rotated by default. The same refresh token can be
+  used multiple times.
+</Note>
+
+---
+
+## Error Responses
+
+<ResponseField name="invalid_request" type="400">
+  Missing or invalid required parameters
+
+```json
+{
+  "error": "invalid_request",
+  "error_description": "Missing required parameters: code, client_id, redirect_uri"
+}
+```
+
+</ResponseField>
+
+<ResponseField name="invalid_grant" type="401">
+  Invalid authorization code, expired code, or PKCE verification failed
+
+```json
+{
+  "error": "invalid_grant",
+  "error_description": "PKCE verification failed"
+}
+```
+
+</ResponseField>
+
+<ResponseField name="invalid_client" type="401">
+  Invalid client_id or client_secret
+
+```json
+{
+  "error": "invalid_client",
+  "error_description": "Client authentication failed"
+}
+```
+
+</ResponseField>
+
+<ResponseField name="unsupported_grant_type" type="400">
+  Grant type not supported (OAuth 2.1 only supports `authorization_code` and `refresh_token`)
+
+```json
+{
+  "error": "unsupported_grant_type",
+  "error_description": "Only authorization_code and refresh_token grant types are supported"
+}
+```
+
+</ResponseField>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="PKCE verification failed">
+    **Cause:** Code verifier doesn't match the original code challenge
+
+    **Solutions:**
+    - Ensure you're using the same verifier that generated the challenge
+    - Check that the verifier is stored correctly in sessionStorage
+    - Verify the SHA-256 hashing is implemented correctly
+
+  </Accordion>
+
+  <Accordion title="Authorization code has expired">
+    **Cause:** Code older than 10 minutes
+
+    **Solution:** Restart the OAuth flow from `/oauth2/authorize`
+
+  </Accordion>
+
+  <Accordion title="redirect_uri does not match">
+    **Cause:** Redirect URI doesn't exactly match the one used in authorization
+
+    **Solution:** Ensure exact match including protocol, domain, port, and path
+
+  </Accordion>
+
+  <Accordion title="Invalid refresh token">
+    **Cause:** Refresh token expired (30 days) or revoked
+
+    **Solution:** User must re-authenticate via `/oauth2/authorize`
+
+  </Accordion>
+</AccordionGroup>
+
+## Token Lifetime
+
+| Token Type         | Lifetime   | Notes            |
+| ------------------ | ---------- | ---------------- |
+| Authorization Code | 10 minutes | Single use only  |
+| Access Token       | 1 hour     | Can be refreshed |
+| Refresh Token      | 30 days    | Long-lived       |
+
+## Security Notes
+
+<Warning>
+  - Authorization codes are single-use and expire quickly - Always use PKCE
+  (required by OAuth 2.1) - Store refresh tokens securely - Never expose tokens
+  in URLs or logs
+</Warning>
+
+## Related Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Authorization" icon="key" href="/api-reference/oauth/authorize">
+    Start the OAuth flow
+  </Card>
+  <Card title="User Info" icon="user" href="/api-reference/oauth/userinfo">
+    Get user information with access token
+  </Card>
+</CardGroup>

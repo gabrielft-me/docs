@@ -1,0 +1,317 @@
+---
+title: "Configuration"
+description: "Complete configuration options for the Auth-Agent JavaScript SDK"
+---
+
+# SDK Configuration
+
+Configure the AgentSDK with various options to customize behavior, timeouts, callbacks, and more.
+
+## SDKConfig Interface
+
+```typescript
+interface SDKConfig {
+  agentId: string;
+  agentSecret?: string;
+  serverUrl?: string;
+  timeout?: number;
+  customFetch?: typeof fetch;
+  onTokensReceived?: (tokens: TokenResponse) => void | Promise<void>;
+  onTokensRefreshed?: (tokens: TokenResponse) => void | Promise<void>;
+  onTokensRevoked?: () => void | Promise<void>;
+}
+```
+
+## Configuration Options
+
+### agentId (required)
+
+<ParamField path="agentId" type="string" required>
+  Your unique agent identifier. This is the client ID used in OAuth flows.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+});
+```
+
+### agentSecret (optional)
+
+<ParamField path="agentSecret" type="string">
+  Agent secret for confidential clients. Only required for initial registration
+  and some server-side operations. Not needed for OAuth 2.1 with PKCE flows.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  agentSecret: "secure-secret-key", // Optional
+});
+```
+
+<Warning>
+  Keep your agent secret secure! Never expose it in client-side code or public
+  repositories.
+</Warning>
+
+### serverUrl (optional)
+
+<ParamField
+  path="serverUrl"
+  type="string"
+  default="process.env.AUTH_SERVER_URL || 'https://api.auth-agent.com'"
+>
+  The base URL of the Auth-Agent server. Defaults to the environment variable
+  `AUTH_SERVER_URL` or the public Auth-Agent API.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  serverUrl: "https://your-auth-server.com",
+});
+```
+
+### timeout (optional)
+
+<ParamField path="timeout" type="number" default="10000">
+  Request timeout in milliseconds. All API requests will abort after this
+  duration.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  timeout: 15000, // 15 seconds
+});
+```
+
+### customFetch (optional)
+
+<ParamField path="customFetch" type="typeof fetch">
+  Custom fetch implementation. Useful for testing, adding custom interceptors,
+  or using a different HTTP client.
+</ParamField>
+
+```typescript
+import fetch from "node-fetch";
+
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  customFetch: fetch,
+});
+```
+
+Example with custom headers:
+
+```typescript
+const customFetch: typeof fetch = async (url, options) => {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options?.headers,
+      "X-Custom-Header": "value",
+    },
+  });
+};
+
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  customFetch,
+});
+```
+
+### onTokensReceived (optional)
+
+<ParamField
+  path="onTokensReceived"
+  type="(tokens: TokenResponse) => void | Promise<void>"
+>
+  Callback invoked when new tokens are received (after OAuth code exchange). Use
+  this to store tokens in your preferred storage system.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  onTokensReceived: async (tokens) => {
+    // Store in database
+    await db.tokens.create({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      idToken: tokens.id_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+    });
+
+    // Or store in Redis
+    await redis.setex(
+      `tokens:${agentId}`,
+      tokens.expires_in,
+      JSON.stringify(tokens)
+    );
+  },
+});
+```
+
+### onTokensRefreshed (optional)
+
+<ParamField
+  path="onTokensRefreshed"
+  type="(tokens: TokenResponse) => void | Promise<void>"
+>
+  Callback invoked when tokens are refreshed. Use this to update stored tokens.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  onTokensRefreshed: async (tokens) => {
+    // Update tokens in storage
+    await db.tokens.update({
+      where: { agentId },
+      data: {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      },
+    });
+  },
+});
+```
+
+### onTokensRevoked (optional)
+
+<ParamField path="onTokensRevoked" type="() => void | Promise<void>">
+  Callback invoked when tokens are revoked. Use this to clear stored tokens.
+</ParamField>
+
+```typescript
+const sdk = new AgentSDK({
+  agentId: "my-ai-agent-123",
+  onTokensRevoked: async () => {
+    // Clear tokens from storage
+    await db.tokens.delete({
+      where: { agentId },
+    });
+
+    // Or clear from Redis
+    await redis.del(`tokens:${agentId}`);
+  },
+});
+```
+
+## Complete Example
+
+Here's a complete configuration example with all options:
+
+```typescript
+import { AgentSDK } from "ai-auth";
+import Database from "./database";
+import fetch from "node-fetch";
+
+const db = new Database();
+
+const sdk = new AgentSDK({
+  // Required
+  agentId: process.env.AGENT_ID!,
+
+  // Optional authentication
+  agentSecret: process.env.AGENT_SECRET,
+
+  // Server configuration
+  serverUrl: process.env.AUTH_SERVER_URL || "https://api.auth-agent.com",
+  timeout: 15000,
+
+  // Custom fetch
+  customFetch: fetch,
+
+  // Token lifecycle callbacks
+  onTokensReceived: async (tokens) => {
+    console.log("Received new tokens");
+    await db.saveTokens({
+      agentId: process.env.AGENT_ID!,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      idToken: tokens.id_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+      scope: tokens.scope,
+    });
+  },
+
+  onTokensRefreshed: async (tokens) => {
+    console.log("Refreshed tokens");
+    await db.updateTokens({
+      agentId: process.env.AGENT_ID!,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+    });
+  },
+
+  onTokensRevoked: async () => {
+    console.log("Tokens revoked");
+    await db.clearTokens(process.env.AGENT_ID!);
+  },
+});
+
+export default sdk;
+```
+
+## Environment Variables
+
+You can use environment variables for sensitive configuration:
+
+```bash .env
+AGENT_ID=my-ai-agent-123
+AGENT_SECRET=your-secret-key
+AUTH_SERVER_URL=https://api.auth-agent.com
+```
+
+```typescript
+import { AgentSDK } from "ai-auth";
+
+const sdk = new AgentSDK({
+  agentId: process.env.AGENT_ID!,
+  agentSecret: process.env.AGENT_SECRET,
+  serverUrl: process.env.AUTH_SERVER_URL,
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Store tokens securely">
+    Always implement the `onTokensReceived`, `onTokensRefreshed`, and
+    `onTokensRevoked` callbacks to properly manage token lifecycle. Use
+    encrypted storage for sensitive tokens.
+  </Accordion>
+
+{" "}
+<Accordion title="Use appropriate timeouts">
+  Set timeouts based on your network conditions and server response times.
+  Default is 10 seconds, but you may need longer for slower networks.
+</Accordion>
+
+{" "}
+<Accordion title="Keep secrets secure">
+  Never commit agent secrets to version control. Use environment variables or
+  secure secret management systems.
+</Accordion>
+
+  <Accordion title="Handle errors gracefully">
+    Implement proper error handling for all SDK methods. Use try-catch blocks
+    and handle specific error codes.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Explore all available SDK methods
+  </Card>
+  <Card title="Token Manager" icon="key" href="/sdk/javascript/token-manager">
+    Learn about token management
+  </Card>
+</CardGroup>

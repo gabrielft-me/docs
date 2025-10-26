@@ -1,0 +1,704 @@
+---
+title: "Utility Functions"
+description: "Helper functions for PKCE, JWT parsing, token management, and more"
+---
+
+# Utility Functions
+
+The SDK includes several utility functions for common OAuth and token management tasks.
+
+## PKCE Utilities
+
+### generatePKCEAsync()
+
+Generate PKCE (Proof Key for Code Exchange) code verifier and challenge using SHA-256.
+
+**Returns:** `Promise<PKCEPair>`
+
+```typescript
+import { generatePKCEAsync } from "ai-auth";
+
+const pkce = await generatePKCEAsync();
+
+console.log("Code Verifier:", pkce.codeVerifier);
+console.log("Code Challenge:", pkce.codeChallenge);
+
+// Use in OAuth flow
+const params = new URLSearchParams({
+  response_type: "code",
+  client_id: "your-agent-id",
+  redirect_uri: "http://localhost:3000/callback",
+  code_challenge: pkce.codeChallenge,
+  code_challenge_method: "S256",
+});
+```
+
+**Return Type:**
+
+```typescript
+interface PKCEPair {
+  codeVerifier: string; // Random base64url-encoded string
+  codeChallenge: string; // SHA-256 hash of verifier (base64url-encoded)
+}
+```
+
+**Details:**
+
+- Generates a 32-byte random code verifier
+- Creates SHA-256 hash of the verifier as the code challenge
+- Uses base64url encoding (URL-safe)
+- Works in both browser and Node.js environments
+- OAuth 2.1 compliant
+
+<Info>
+  The `AgentSDK.getAuthorizationUrl()` method automatically generates PKCE
+  parameters, so you typically don't need to call this directly.
+</Info>
+
+---
+
+### generateState()
+
+Generate a random state parameter for CSRF protection in OAuth flows.
+
+**Returns:** `string`
+
+```typescript
+import { generateState } from "ai-auth";
+
+const state = generateState();
+
+console.log("State:", state);
+// Example: 'K7gNU3sdo-OL0wNhqoVWhr3g6s1xYv72ol_pe_Unols'
+
+// Use in OAuth flow
+const params = new URLSearchParams({
+  response_type: "code",
+  client_id: "your-agent-id",
+  state: state,
+  // ... other params
+});
+```
+
+**Details:**
+
+- Generates a 16-byte random value
+- Base64url encoded (URL-safe)
+- Cryptographically secure random generation
+- Works in both browser and Node.js environments
+
+**Best Practices:**
+
+- Always use a unique state parameter for each OAuth request
+- Store the state parameter and validate it in the callback
+- Never reuse state parameters
+
+<Info>
+  The `AgentSDK.getAuthorizationUrl()` method automatically generates a state
+  parameter if not provided.
+</Info>
+
+---
+
+## JWT Utilities
+
+### parseJWT()
+
+Parse a JWT token to extract claims (without verification).
+
+<ParamField path="token" type="string" required>
+  JWT token to parse
+</ParamField>
+
+**Returns:** `any` - Parsed token claims, or `null` if invalid
+
+```typescript
+import { parseJWT } from "ai-auth";
+
+const idToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
+const claims = parseJWT(idToken);
+
+if (claims) {
+  console.log("Subject:", claims.sub);
+  console.log("Issued at:", claims.iat);
+  console.log("Expires at:", claims.exp);
+  console.log("Agent ID:", claims.agent_id);
+  console.log("Email:", claims.email);
+} else {
+  console.error("Invalid JWT format");
+}
+```
+
+**Example Claims:**
+
+```typescript
+{
+  sub: 'user-123',                    // Subject (user ID)
+  iss: 'https://api.auth-agent.com',  // Issuer
+  aud: 'my-agent-id',                 // Audience (agent ID)
+  exp: 1735689600,                    // Expiration (Unix timestamp)
+  iat: 1735686000,                    // Issued at (Unix timestamp)
+  agent_id: 'my-agent',               // Agent identifier
+  email: 'user@example.com',          // User email
+  name: 'John Doe',                   // User name
+  model_name: 'gpt-4'                 // AI model name
+}
+```
+
+<Warning>
+  This function does NOT verify the JWT signature. Only use it for reading
+  claims from tokens you trust. For security-critical operations, use
+  server-side verification.
+</Warning>
+
+**Use Cases:**
+
+- Reading user information from ID tokens
+- Checking token expiration
+- Debugging token contents
+- Displaying user information
+
+**Security Notes:**
+
+- Never trust claims from unverified tokens for authorization
+- Always verify tokens server-side for sensitive operations
+- Use this only for reading non-sensitive information
+
+---
+
+## Token Expiration Utilities
+
+### isTokenExpired()
+
+Check if a token is expired based on its expiration timestamp.
+
+<ParamField path="expiresAt" type="number" required>
+  Expiration timestamp in milliseconds
+</ParamField>
+
+**Returns:** `boolean` - `true` if expired, `false` if valid
+
+```typescript
+import { isTokenExpired } from "ai-auth";
+
+const expiresAt = Date.now() + 3600 * 1000; // Expires in 1 hour
+
+if (isTokenExpired(expiresAt)) {
+  console.log("Token is expired");
+  // Refresh or re-authenticate
+} else {
+  console.log("Token is still valid");
+  // Use the token
+}
+```
+
+**Example with Token Manager:**
+
+```typescript
+import { TokenManager, isTokenExpired } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+// ... set tokens ...
+
+if (tokenManager.expiresAt && isTokenExpired(tokenManager.expiresAt)) {
+  console.log("Need to refresh token");
+}
+```
+
+<Note>The `TokenManager.isExpired()` method uses this utility internally.</Note>
+
+---
+
+### getTimeUntilExpiry()
+
+Get the time remaining until a token expires.
+
+<ParamField path="expiresAt" type="number" required>
+  Expiration timestamp in milliseconds
+</ParamField>
+
+**Returns:** `number` - Milliseconds until expiration (minimum 0)
+
+```typescript
+import { getTimeUntilExpiry } from "ai-auth";
+
+const expiresAt = Date.now() + 3600 * 1000; // Expires in 1 hour
+
+const timeLeft = getTimeUntilExpiry(expiresAt);
+const secondsLeft = Math.floor(timeLeft / 1000);
+const minutesLeft = Math.floor(secondsLeft / 60);
+
+console.log(`Token expires in ${minutesLeft} minutes`);
+
+// Schedule refresh before expiration
+if (secondsLeft < 300) {
+  // Less than 5 minutes
+  console.log("Token expires soon, refreshing...");
+  await sdk.refreshAccessToken(refreshToken);
+}
+```
+
+**Practical Examples:**
+
+Display countdown:
+
+```typescript
+function displayTokenExpiry(expiresAt: number) {
+  const timeLeft = getTimeUntilExpiry(expiresAt);
+
+  if (timeLeft === 0) {
+    return "Expired";
+  }
+
+  const seconds = Math.floor(timeLeft / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+
+console.log(displayTokenExpiry(tokenManager.expiresAt!));
+```
+
+Auto-refresh before expiration:
+
+```typescript
+import { getTimeUntilExpiry, sleep } from "ai-auth";
+
+async function autoRefreshToken(sdk: AgentSDK, tokenManager: TokenManager) {
+  while (true) {
+    if (tokenManager.expiresAt) {
+      const timeLeft = getTimeUntilExpiry(tokenManager.expiresAt);
+      const refreshBuffer = 5 * 60 * 1000; // 5 minutes
+
+      if (timeLeft < refreshBuffer && tokenManager.refreshToken) {
+        console.log("Auto-refreshing token...");
+        await sdk.refreshAccessToken(tokenManager.refreshToken);
+      }
+    }
+
+    await sleep(60000); // Check every minute
+  }
+}
+```
+
+---
+
+## Helper Utilities
+
+### sleep()
+
+Pause execution for a specified duration.
+
+<ParamField path="ms" type="number" required>
+  Duration to sleep in milliseconds
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+```typescript
+import { sleep } from "ai-auth";
+
+console.log("Starting...");
+await sleep(2000); // Sleep for 2 seconds
+console.log("Done!");
+```
+
+**Use Cases:**
+
+Polling with delays:
+
+```typescript
+async function pollForChallenge(verifyCtxId: string) {
+  const maxAttempts = 10;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const challenge = await fetchChallenge(verifyCtxId);
+
+    if (challenge) {
+      return challenge;
+    }
+
+    console.log(`Attempt ${i + 1}/${maxAttempts}, waiting...`);
+    await sleep(2000); // Wait 2 seconds between attempts
+  }
+
+  throw new Error("Polling timeout");
+}
+```
+
+Rate limiting:
+
+```typescript
+async function makeRequestsWithDelay(requests: string[]) {
+  for (const request of requests) {
+    await processRequest(request);
+    await sleep(1000); // 1 second delay between requests
+  }
+}
+```
+
+Retry with backoff:
+
+```typescript
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3
+): Promise<T> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+
+      const delay = Math.pow(2, i) * 1000; // Exponential backoff
+      console.log(`Retry ${i + 1}/${maxRetries} in ${delay}ms...`);
+      await sleep(delay);
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+}
+
+// Usage
+const result = await retryWithBackoff(() => sdk.getUserInfo(accessToken));
+```
+
+---
+
+## Complete Examples
+
+### Example 1: Manual OAuth Flow with PKCE
+
+```typescript
+import { generatePKCEAsync, generateState, parseJWT } from "ai-auth";
+
+// Step 1: Generate PKCE parameters and state
+const pkce = await generatePKCEAsync();
+const state = generateState();
+
+// Store for later
+await storage.save({
+  codeVerifier: pkce.codeVerifier,
+  state: state,
+});
+
+// Step 2: Build authorization URL
+const params = new URLSearchParams({
+  response_type: "code",
+  client_id: "my-agent-id",
+  redirect_uri: "http://localhost:3000/callback",
+  scope: "openid profile email agent",
+  state: state,
+  code_challenge: pkce.codeChallenge,
+  code_challenge_method: "S256",
+});
+
+const authUrl = `https://api.auth-agent.com/oauth2/authorize?${params}`;
+console.log("Visit:", authUrl);
+
+// Step 3: In callback, exchange code for tokens
+const { codeVerifier, state: savedState } = await storage.get();
+
+if (callbackState !== savedState) {
+  throw new Error("State mismatch - possible CSRF attack");
+}
+
+const tokenResponse = await fetch("https://api.auth-agent.com/oauth2/token", {
+  method: "POST",
+  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code: authCode,
+    redirect_uri: "http://localhost:3000/callback",
+    client_id: "my-agent-id",
+    code_verifier: codeVerifier,
+  }),
+});
+
+const tokens = await tokenResponse.json();
+
+// Step 4: Parse ID token
+const claims = parseJWT(tokens.id_token);
+console.log("User:", claims.email);
+console.log("Expires at:", new Date(claims.exp * 1000));
+```
+
+### Example 2: Token Expiration Monitoring
+
+```typescript
+import { isTokenExpired, getTimeUntilExpiry, sleep } from "ai-auth";
+
+async function monitorTokenExpiration(
+  sdk: AgentSDK,
+  tokenManager: TokenManager
+) {
+  setInterval(() => {
+    if (!tokenManager.expiresAt) {
+      console.log("No token stored");
+      return;
+    }
+
+    if (isTokenExpired(tokenManager.expiresAt)) {
+      console.log("Token expired!");
+      return;
+    }
+
+    const timeLeft = getTimeUntilExpiry(tokenManager.expiresAt);
+    const minutes = Math.floor(timeLeft / 60000);
+
+    console.log(`Token expires in ${minutes} minutes`);
+
+    // Auto-refresh if less than 5 minutes left
+    if (minutes < 5 && tokenManager.refreshToken) {
+      console.log("Auto-refreshing token...");
+      sdk
+        .refreshAccessToken(tokenManager.refreshToken)
+        .then(() => console.log("Token refreshed"))
+        .catch((err) => console.error("Refresh failed:", err));
+    }
+  }, 60000); // Check every minute
+}
+```
+
+### Example 3: JWT Claims Parsing
+
+```typescript
+import { parseJWT } from "ai-auth";
+
+function displayUserInfo(idToken: string) {
+  const claims = parseJWT(idToken);
+
+  if (!claims) {
+    console.error("Invalid JWT token");
+    return;
+  }
+
+  console.log("=== User Information ===");
+  console.log("User ID:", claims.sub);
+  console.log("Email:", claims.email);
+  console.log("Name:", claims.name);
+  console.log("Agent ID:", claims.agent_id);
+  console.log("Model:", claims.model_name);
+
+  // Check expiration
+  const expiresAt = claims.exp * 1000; // Convert to milliseconds
+  const now = Date.now();
+
+  if (expiresAt < now) {
+    console.log("Token Status: EXPIRED");
+  } else {
+    const minutesLeft = Math.floor((expiresAt - now) / 60000);
+    console.log(`Token Status: Valid for ${minutesLeft} more minutes`);
+  }
+
+  // Display issued time
+  const issuedAt = new Date(claims.iat * 1000);
+  console.log("Issued at:", issuedAt.toLocaleString());
+
+  // Display expiration time
+  const expiresAtDate = new Date(expiresAt);
+  console.log("Expires at:", expiresAtDate.toLocaleString());
+}
+
+// Usage
+const tokens = await sdk.exchangeCode(code, state, redirectUri);
+displayUserInfo(tokens.id_token!);
+```
+
+### Example 4: Polling with Sleep
+
+```typescript
+import { sleep } from "ai-auth";
+
+async function pollForAuthentication(
+  sdk: AgentSDK,
+  verifyCtxId: string,
+  options = { timeout: 60000, interval: 2000 }
+): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < options.timeout) {
+    try {
+      const challenge = await sdk.requestChallenge(accessToken);
+
+      if (challenge.challenge) {
+        // Challenge available, confirm it
+        await sdk.confirmVerification(accessToken, {
+          challenge: challenge.challenge,
+          expires: challenge.expires!,
+          sig: challenge.sig!,
+          verify_ctx_id: verifyCtxId,
+        });
+
+        return true;
+      }
+
+      // No challenge yet, wait and retry
+      await sleep(options.interval);
+    } catch (error) {
+      console.error("Polling error:", error);
+      await sleep(options.interval);
+    }
+  }
+
+  console.error("Polling timeout exceeded");
+  return false;
+}
+
+// Usage
+const success = await pollForAuthentication(sdk, "verify-123");
+console.log("Authentication:", success ? "SUCCESS" : "FAILED");
+```
+
+### Example 5: Comprehensive Token Management
+
+```typescript
+import {
+  generatePKCEAsync,
+  generateState,
+  parseJWT,
+  isTokenExpired,
+  getTimeUntilExpiry,
+  sleep,
+} from "ai-auth";
+
+class TokenService {
+  private tokens: any = null;
+  private expiresAt: number = 0;
+
+  async startOAuthFlow() {
+    const pkce = await generatePKCEAsync();
+    const state = generateState();
+
+    await this.storage.save({ pkce, state });
+
+    return {
+      url: this.buildAuthUrl(pkce.codeChallenge, state),
+      state,
+    };
+  }
+
+  async handleCallback(code: string, state: string) {
+    const { pkce, state: savedState } = await this.storage.get();
+
+    if (state !== savedState) {
+      throw new Error("State mismatch");
+    }
+
+    this.tokens = await this.exchangeCode(code, pkce.codeVerifier);
+    this.expiresAt = Date.now() + this.tokens.expires_in * 1000;
+
+    // Parse ID token
+    const claims = parseJWT(this.tokens.id_token);
+    console.log("Logged in as:", claims.email);
+
+    return this.tokens;
+  }
+
+  async getValidAccessToken(): Promise<string> {
+    if (!this.tokens) {
+      throw new Error("Not authenticated");
+    }
+
+    if (isTokenExpired(this.expiresAt)) {
+      console.log("Token expired, refreshing...");
+      await this.refreshTokens();
+    } else {
+      const timeLeft = getTimeUntilExpiry(this.expiresAt);
+      console.log(`Token valid for ${Math.floor(timeLeft / 1000)}s`);
+    }
+
+    return this.tokens.access_token;
+  }
+
+  private async refreshTokens() {
+    if (!this.tokens.refresh_token) {
+      throw new Error("No refresh token available");
+    }
+
+    // Refresh implementation
+    // ...
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always validate state parameters">
+    ```typescript
+    const state = generateState();
+    await storage.save({ state });
+    
+    // In callback
+    if (callbackState !== savedState) {
+      throw new Error('State mismatch - CSRF attack detected');
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Never trust unverified JWT claims">
+    ```typescript
+    // ❌ Don't use for authorization decisions
+    const claims = parseJWT(token);
+    if (claims.role === 'admin') {
+      grantAdminAccess(); // UNSAFE!
+    }
+    
+    // ✅ Only use for display/debugging
+    const claims = parseJWT(idToken);
+    console.log('User email:', claims.email);
+    ```
+  </Accordion>
+  
+  <Accordion title="Check token expiration before using">
+    ```typescript
+    if (isTokenExpired(expiresAt)) {
+      await refreshOrReauthenticate();
+    }
+    const token = tokenManager.getAccessToken();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate polling intervals">
+    ```typescript
+    // Good: Reasonable interval
+    await sleep(2000); // 2 seconds
+    
+    // Bad: Too aggressive
+    await sleep(100); // 100ms - may overload server
+    
+    // Bad: Too slow
+    await sleep(30000); // 30s - poor UX
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Types Reference"
+    icon="brackets-curly"
+    href="/sdk/javascript/types"
+  >
+    Complete TypeScript type definitions
+  </Card>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Explore all SDK methods
+  </Card>
+  <Card title="Token Manager" icon="key" href="/sdk/javascript/token-manager">
+    Token management utilities
+  </Card>
+  <Card title="Examples" icon="book" href="/examples/overview">
+    See practical examples
+  </Card>
+</CardGroup>

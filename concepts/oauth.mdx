@@ -1,0 +1,65 @@
+---
+title: "OAuth 2.1"
+description: "Understanding OAuth 2.1 and its improvements over OAuth 2.0"
+---
+
+## What is OAuth 2.1?
+
+OAuth 2.1 is the latest iteration of the OAuth authorization framework. It consolidates best practices and security improvements from OAuth 2.0, removing deprecated features and making PKCE mandatory.
+
+## Key Improvements
+
+<CardGroup cols={2}>
+  <Card title="Mandatory PKCE" icon="shield-check">
+    All clients must use PKCE for authorization code flow
+  </Card>
+  <Card title="No Implicit Flow" icon="ban">
+    Deprecated implicit and password grants removed
+  </Card>
+  <Card title="Redirect URI Matching" icon="link">
+    Exact matching required, no wildcards
+  </Card>
+  <Card title="Security First" icon="lock">
+    Built-in protection against common attacks
+  </Card>
+</CardGroup>
+
+## OAuth 2.1 vs OAuth 2.0
+
+| Feature                | OAuth 2.0       | OAuth 2.1       |
+| ---------------------- | --------------- | --------------- |
+| PKCE                   | Optional        | **Mandatory**   |
+| Implicit Flow          | Supported       | **Removed**     |
+| Password Grant         | Supported       | **Removed**     |
+| Redirect URI           | Substring match | **Exact match** |
+| Refresh Token Rotation | Optional        | **Recommended** |
+
+## Why OAuth 2.1?
+
+<Steps>
+  <Step title="Enhanced Security">
+    PKCE prevents authorization code interception attacks
+  </Step>
+  <Step title="Simplified Spec">Removes deprecated and insecure flows</Step>
+  <Step title="Modern Best Practices">
+    Incorporates years of real-world experience
+  </Step>
+  <Step title="Future-Proof">
+    Designed for current and future security threats
+  </Step>
+</Steps>
+
+## Learn More
+
+<CardGroup>
+  <Card title="PKCE Explained" icon="key" href="/concepts/pkce">
+    Deep dive into PKCE implementation
+  </Card>
+  <Card
+    title="Authentication Flow"
+    icon="diagram-project"
+    href="/authentication-flow"
+  >
+    Complete OAuth 2.1 flow with Auth-Agent
+  </Card>
+</CardGroup>

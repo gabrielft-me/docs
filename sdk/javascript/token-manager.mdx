@@ -1,0 +1,594 @@
+---
+title: "TokenManager"
+description: "Built-in token management for OAuth tokens with automatic expiration tracking"
+---
+
+# TokenManager
+
+The `TokenManager` class provides a simple, built-in solution for managing OAuth tokens with automatic expiration tracking.
+
+## Overview
+
+The TokenManager handles:
+
+- Storing access tokens, refresh tokens, and ID tokens
+- Tracking token expiration with a 60-second buffer
+- Automatic expiration checking
+- Token lifecycle management
+
+<Note>
+  The TokenManager stores tokens in memory. For production use with persistent
+  storage, implement custom token storage using the SDK's callbacks
+  (`onTokensReceived`, `onTokensRefreshed`, `onTokensRevoked`).
+</Note>
+
+## Usage
+
+### Basic Setup
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+```
+
+### Complete Flow
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+// OAuth flow
+const { url } = await sdk.getAuthorizationUrl({
+  redirectUri: "http://localhost:3000/callback",
+});
+
+// After callback
+const tokens = await sdk.exchangeCode(code, state, redirectUri);
+// tokens automatically stored via onTokensReceived
+
+// Check if token is expired
+if (tokenManager.isExpired()) {
+  // Refresh if available
+  if (tokenManager.refreshToken) {
+    await sdk.refreshAccessToken(tokenManager.refreshToken);
+  } else {
+    // Re-authenticate
+    redirectToLogin();
+  }
+}
+
+// Get access token
+const accessToken = tokenManager.getAccessToken();
+
+// Make authenticated requests
+const userInfo = await sdk.getUserInfo(accessToken);
+```
+
+## Properties
+
+### accessToken
+
+<ParamField path="accessToken" type="string | null">
+  The current access token. `null` if no token is stored.
+</ParamField>
+
+```typescript
+const token = tokenManager.accessToken;
+if (token) {
+  console.log("Access token available");
+}
+```
+
+### idToken
+
+<ParamField path="idToken" type="string | null">
+  The current OpenID Connect ID token. `null` if not available.
+</ParamField>
+
+```typescript
+const idToken = tokenManager.idToken;
+if (idToken) {
+  // Parse ID token claims
+  const claims = parseJWT(idToken);
+  console.log("User ID:", claims.sub);
+}
+```
+
+### refreshToken
+
+<ParamField path="refreshToken" type="string | null">
+  The current refresh token. `null` if not available.
+</ParamField>
+
+```typescript
+if (tokenManager.refreshToken) {
+  // Refresh token available - can refresh access token
+  await sdk.refreshAccessToken(tokenManager.refreshToken);
+} else {
+  // No refresh token - need to re-authenticate
+  redirectToLogin();
+}
+```
+
+### tokenType
+
+<ParamField path="tokenType" type="string" default="Bearer">
+  The token type. Always `'Bearer'` for OAuth 2.1.
+</ParamField>
+
+```typescript
+console.log(tokenManager.tokenType); // 'Bearer'
+```
+
+### expiresAt
+
+<ParamField path="expiresAt" type="number | null">
+  Timestamp (in milliseconds) when the access token expires. Includes a
+  60-second buffer. `null` if no token is stored.
+</ParamField>
+
+```typescript
+if (tokenManager.expiresAt) {
+  const timeLeft = tokenManager.expiresAt - Date.now();
+  console.log(`Token expires in ${Math.floor(timeLeft / 1000)} seconds`);
+}
+```
+
+### scopes
+
+<ParamField path="scopes" type="string | null">
+  Space-separated list of granted scopes. `null` if no token is stored.
+</ParamField>
+
+```typescript
+console.log("Granted scopes:", tokenManager.scopes);
+// Example: 'openid profile email agent'
+```
+
+## Methods
+
+### setTokens()
+
+Store tokens from an OAuth response.
+
+<ParamField path="tokenResponse" type="TokenResponse" required>
+  OAuth token response object
+</ParamField>
+
+**Returns:** `void`
+
+```typescript
+const tokens = await sdk.exchangeCode(code, state, redirectUri);
+tokenManager.setTokens(tokens);
+
+console.log("Access token:", tokenManager.accessToken);
+console.log("Refresh token:", tokenManager.refreshToken);
+console.log("ID token:", tokenManager.idToken);
+```
+
+**What it does:**
+
+- Stores access token, refresh token, and ID token
+- Calculates expiration time with a 60-second buffer
+- Stores token type and scopes
+
+**Token Response Format:**
+
+```typescript
+{
+  access_token: string;
+  token_type: 'Bearer';
+  expires_in: number;        // Seconds until expiration
+  refresh_token?: string;
+  id_token?: string;
+  scope: string;
+}
+```
+
+---
+
+### isExpired()
+
+Check if the access token is expired.
+
+**Returns:** `boolean` - `true` if expired or no token, `false` if valid
+
+```typescript
+if (tokenManager.isExpired()) {
+  console.log("Token is expired, need to refresh");
+
+  if (tokenManager.refreshToken) {
+    await sdk.refreshAccessToken(tokenManager.refreshToken);
+  } else {
+    redirectToLogin();
+  }
+} else {
+  console.log("Token is still valid");
+  const accessToken = tokenManager.getAccessToken();
+}
+```
+
+**Expiration Logic:**
+
+- Returns `true` if no token is stored
+- Returns `true` if no expiration time is set
+- Returns `true` if current time >= expiration time
+- Returns `false` if token is still valid
+
+<Info>
+  The expiration check includes a 60-second buffer to prevent using tokens that
+  are about to expire.
+</Info>
+
+---
+
+### getAccessToken()
+
+Get the current access token. Throws an error if the token is expired.
+
+**Returns:** `string` - The access token
+
+**Throws:** `Error` if token is expired
+
+```typescript
+try {
+  const accessToken = tokenManager.getAccessToken();
+
+  // Use the token
+  const userInfo = await sdk.getUserInfo(accessToken);
+} catch (error) {
+  console.error("Token expired, refreshing...");
+
+  if (tokenManager.refreshToken) {
+    await sdk.refreshAccessToken(tokenManager.refreshToken);
+    const newToken = tokenManager.getAccessToken();
+  }
+}
+```
+
+**Best Practice:**
+Always check `isExpired()` before calling `getAccessToken()` to avoid exceptions:
+
+```typescript
+if (tokenManager.isExpired()) {
+  // Refresh or re-authenticate
+  if (tokenManager.refreshToken) {
+    await sdk.refreshAccessToken(tokenManager.refreshToken);
+  } else {
+    return redirectToLogin();
+  }
+}
+
+const accessToken = tokenManager.getAccessToken();
+```
+
+---
+
+### clear()
+
+Clear all stored tokens and reset the manager.
+
+**Returns:** `void`
+
+```typescript
+// Logout
+await sdk.revokeToken(tokenManager.accessToken!);
+tokenManager.clear();
+
+console.log(tokenManager.accessToken); // null
+console.log(tokenManager.refreshToken); // null
+console.log(tokenManager.idToken); // null
+console.log(tokenManager.expiresAt); // null
+```
+
+**What it clears:**
+
+- `accessToken`
+- `idToken`
+- `refreshToken`
+- `expiresAt`
+- `scopes`
+
+---
+
+## Complete Examples
+
+### Example 1: Basic Usage
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "my-agent",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+// Start OAuth flow
+const { url, codeVerifier, state } = await sdk.getAuthorizationUrl({
+  redirectUri: "http://localhost:3000/callback",
+});
+
+console.log("Visit:", url);
+
+// Handle callback
+const tokens = await sdk.exchangeCode(
+  code,
+  state,
+  "http://localhost:3000/callback"
+);
+
+// Make authenticated request
+if (!tokenManager.isExpired()) {
+  const accessToken = tokenManager.getAccessToken();
+  const profile = await sdk.getAgentProfile(accessToken);
+  console.log(profile);
+}
+```
+
+### Example 2: Automatic Token Refresh
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "my-agent",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+async function getValidAccessToken(): Promise<string> {
+  // Check if token is expired
+  if (tokenManager.isExpired()) {
+    if (tokenManager.refreshToken) {
+      // Refresh the token
+      console.log("Refreshing access token...");
+      await sdk.refreshAccessToken(tokenManager.refreshToken);
+    } else {
+      throw new Error("No refresh token available, re-authentication required");
+    }
+  }
+
+  return tokenManager.getAccessToken();
+}
+
+// Use the helper
+try {
+  const accessToken = await getValidAccessToken();
+  const userInfo = await sdk.getUserInfo(accessToken);
+  console.log(userInfo);
+} catch (error) {
+  console.error("Authentication failed:", error);
+  // Redirect to login
+}
+```
+
+### Example 3: Token Lifecycle Management
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "my-agent",
+  onTokensReceived: (tokens) => {
+    console.log("Received new tokens");
+    tokenManager.setTokens(tokens);
+    displayTokenInfo();
+  },
+  onTokensRefreshed: (tokens) => {
+    console.log("Tokens refreshed");
+    tokenManager.setTokens(tokens);
+    displayTokenInfo();
+  },
+  onTokensRevoked: () => {
+    console.log("Tokens revoked");
+    tokenManager.clear();
+  },
+});
+
+function displayTokenInfo() {
+  if (tokenManager.accessToken) {
+    const timeLeft = tokenManager.expiresAt! - Date.now();
+    console.log(`Token expires in ${Math.floor(timeLeft / 1000)} seconds`);
+    console.log(`Scopes: ${tokenManager.scopes}`);
+    console.log(`Has refresh token: ${!!tokenManager.refreshToken}`);
+  }
+}
+
+// Login
+const { url } = await sdk.getAuthorizationUrl({
+  redirectUri: "http://localhost:3000/callback",
+});
+
+// After callback
+await sdk.exchangeCode(code, state, redirectUri);
+
+// Logout
+async function logout() {
+  if (tokenManager.accessToken) {
+    await sdk.revokeToken(tokenManager.accessToken);
+    // tokenManager.clear() is automatically called via onTokensRevoked
+  }
+}
+```
+
+### Example 4: Monitoring Token Expiration
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "my-agent",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+// Check token status periodically
+setInterval(() => {
+  if (tokenManager.accessToken) {
+    if (tokenManager.expiresAt) {
+      const timeLeft = tokenManager.expiresAt - Date.now();
+      const secondsLeft = Math.floor(timeLeft / 1000);
+
+      if (secondsLeft < 300) {
+        // Less than 5 minutes
+        console.warn(`Token expires soon: ${secondsLeft} seconds left`);
+
+        if (tokenManager.refreshToken) {
+          sdk
+            .refreshAccessToken(tokenManager.refreshToken)
+            .then(() => console.log("Token refreshed preemptively"))
+            .catch((err) => console.error("Refresh failed:", err));
+        }
+      } else {
+        console.log(`Token valid for ${secondsLeft} more seconds`);
+      }
+    }
+  }
+}, 60000); // Check every minute
+```
+
+## When to Use TokenManager vs Custom Storage
+
+### Use TokenManager when:
+
+- Building a simple CLI tool or script
+- Prototyping or testing
+- Single-user, single-session applications
+- Short-lived processes
+
+### Use Custom Storage when:
+
+- Building production web applications
+- Supporting multiple users
+- Need persistent storage across sessions
+- Require encrypted token storage
+- Need distributed session management
+
+### Example: Custom Storage Implementation
+
+```typescript
+import { AgentSDK } from "ai-auth";
+import Database from "./database";
+
+const db = new Database();
+
+const sdk = new AgentSDK({
+  agentId: "my-agent",
+  onTokensReceived: async (tokens) => {
+    await db.tokens.create({
+      userId: currentUser.id,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      idToken: tokens.id_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+      scope: tokens.scope,
+    });
+  },
+  onTokensRefreshed: async (tokens) => {
+    await db.tokens.update({
+      where: { userId: currentUser.id },
+      data: {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      },
+    });
+  },
+  onTokensRevoked: async () => {
+    await db.tokens.delete({
+      where: { userId: currentUser.id },
+    });
+  },
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always check expiration before using tokens">
+    ```typescript
+    if (tokenManager.isExpired()) {
+      await refreshOrReauthenticate();
+    }
+    const token = tokenManager.getAccessToken();
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle missing refresh tokens">
+    ```typescript
+    if (tokenManager.isExpired()) {
+      if (!tokenManager.refreshToken) {
+        // No refresh token - need to re-authenticate
+        return redirectToLogin();
+      }
+      await sdk.refreshAccessToken(tokenManager.refreshToken);
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use try-catch with getAccessToken()">
+    ```typescript
+    try {
+      const token = tokenManager.getAccessToken();
+    } catch (error) {
+      // Handle expired token
+      await handleExpiredToken();
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Clear tokens on logout">
+    ```typescript
+    async function logout() {
+      if (tokenManager.accessToken) {
+        await sdk.revokeToken(tokenManager.accessToken);
+      }
+      tokenManager.clear();
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Learn about all SDK methods
+  </Card>
+  <Card title="Utilities" icon="wrench" href="/sdk/javascript/utilities">
+    PKCE, JWT parsing, and helper utilities
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdk/javascript/configuration">
+    SDK configuration options
+  </Card>
+  <Card title="Examples" icon="book" href="/examples/overview">
+    See complete examples
+  </Card>
+</CardGroup>

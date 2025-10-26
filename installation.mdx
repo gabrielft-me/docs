@@ -1,0 +1,296 @@
+---
+title: Installation
+description: "Install Auth-Agent SDK in your project"
+---
+
+## Package Installation
+
+Auth-Agent SDK is available as an npm package under the name `ai-auth`.
+
+<CodeGroup>
+
+```bash npm
+npm install ai-auth
+```
+
+```bash yarn
+yarn add ai-auth
+```
+
+```bash pnpm
+pnpm add ai-auth
+```
+
+```bash bun
+bun add ai-auth
+```
+
+</CodeGroup>
+
+## Package Exports
+
+The `ai-auth` package provides multiple entry points for different use cases:
+
+### Full SDK (Recommended)
+
+```typescript
+import {
+  AuthProvider,
+  useAuth,
+  SignInWithAuthAgent,
+  AuthAgentClient,
+} from "ai-auth";
+```
+
+Includes everything: React components, hooks, and core client.
+
+### Core Client Only
+
+```typescript
+import { AuthAgentClient } from "ai-auth/client";
+```
+
+Framework-agnostic authentication client for vanilla JS/TS or server-side use.
+
+### React Components Only
+
+```typescript
+import { AuthProvider, useAuth, SignInWithAuthAgent } from "ai-auth/react";
+```
+
+Only React-specific exports (components and hooks).
+
+## TypeScript Support
+
+The SDK is written in TypeScript and includes comprehensive type definitions.
+
+```typescript
+import type {
+  AuthConfig,
+  UserInfo,
+  TokenResponse,
+  AuthState,
+  AuthError,
+} from "ai-auth";
+```
+
+### TypeScript Configuration
+
+Make sure your `tsconfig.json` includes:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler", // or "node16" / "nodenext"
+    "jsx": "react-jsx", // if using React
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
+  }
+}
+```
+
+## Peer Dependencies
+
+### For React Applications
+
+```json
+{
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  }
+}
+```
+
+React and React DOM are peer dependencies, meaning they must be installed separately if you're using React components.
+
+### For Vanilla JavaScript
+
+No peer dependencies required when using only the core client.
+
+## Browser Compatibility
+
+Auth-Agent SDK supports modern browsers with the following APIs:
+
+- **Crypto API**: For PKCE generation (SHA-256 hashing)
+- **Fetch API**: For HTTP requests
+- **LocalStorage/SessionStorage**: For token storage
+- **ES2020+**: For JavaScript features
+
+### Minimum Versions
+
+<ResponseField name="Chrome" type=">=87" />
+<ResponseField name="Firefox" type=">=78" />
+<ResponseField name="Safari" type=">=14" />
+<ResponseField name="Edge" type=">=88" />
+
+## CDN Installation
+
+For quick prototyping without a build step:
+
+```html
+<script type="module">
+  import { AuthAgentClient } from "https://cdn.skypack.dev/ai-auth";
+
+  const client = new AuthAgentClient({
+    clientId: "your_agent_id",
+    redirectUri: window.location.origin + "/callback",
+  });
+</script>
+```
+
+<Warning>
+  CDN usage is recommended for prototyping only. For production, use a bundler
+  for better performance and tree-shaking.
+</Warning>
+
+## Framework-Specific Setup
+
+<Tabs>
+  <Tab title="Next.js">
+    ### Next.js App Router
+
+    ```typescript app/providers.tsx
+    'use client';
+
+    import { AuthProvider } from 'ai-auth';
+
+    export function Providers({ children }: { children: React.ReactNode }) {
+      return (
+        <AuthProvider
+          config={{
+            clientId: process.env.NEXT_PUBLIC_CLIENT_ID!,
+            redirectUri: `${process.env.NEXT_PUBLIC_APP_URL}/callback`,
+          }}
+        >
+          {children}
+        </AuthProvider>
+      );
+    }
+    ```
+
+    ```typescript app/layout.tsx
+    import { Providers } from './providers';
+
+    export default function RootLayout({ children }: { children: React.ReactNode }) {
+      return (
+        <html>
+          <body>
+            <Providers>{children}</Providers>
+          </body>
+        </html>
+      );
+    }
+    ```
+
+  </Tab>
+
+  <Tab title="Vite + React">
+    ```typescript main.tsx
+    import React from 'react';
+    import ReactDOM from 'react-dom/client';
+    import { AuthProvider } from 'ai-auth';
+    import App from './App';
+
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <React.StrictMode>
+        <AuthProvider
+          config={{
+            clientId: import.meta.env.VITE_CLIENT_ID,
+            redirectUri: 'http://localhost:5173/callback',
+          }}
+        >
+          <App />
+        </AuthProvider>
+      </React.StrictMode>
+    );
+    ```
+
+  </Tab>
+
+  <Tab title="Create React App">
+    ```typescript index.tsx
+    import React from 'react';
+    import ReactDOM from 'react-dom/client';
+    import { AuthProvider } from 'ai-auth';
+    import App from './App';
+
+    const root = ReactDOM.createRoot(document.getElementById('root')!);
+
+    root.render(
+      <React.StrictMode>
+        <AuthProvider
+          config={{
+            clientId: process.env.REACT_APP_CLIENT_ID!,
+            redirectUri: 'http://localhost:3000/callback',
+          }}
+        >
+          <App />
+        </AuthProvider>
+      </React.StrictMode>
+    );
+    ```
+
+  </Tab>
+
+  <Tab title="Vanilla JS">
+    ```html index.html
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Auth-Agent Demo</title>
+    </head>
+    <body>
+      <div id="app"></div>
+      
+      <script type="module">
+        import { AuthAgentClient } from 'ai-auth';
+
+        const client = new AuthAgentClient({
+          clientId: 'your_client_id',
+          redirectUri: window.location.origin,
+        });
+
+        // Your app logic
+      </script>
+    </body>
+    </html>
+    ```
+
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+Create a simple test to verify the SDK is installed correctly:
+
+```typescript test.ts
+import { AuthAgentClient } from "ai-auth";
+
+const client = new AuthAgentClient({
+  clientId: "test",
+  redirectUri: "http://localhost:3000",
+});
+
+console.log("SDK installed successfully!");
+console.log("Client created:", client);
+```
+
+Run with:
+
+```bash
+node test.ts
+# or
+tsx test.ts
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="play" href="/quickstart">
+    Build your first authenticated app
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdk/javascript/configuration">
+    Learn about all configuration options
+  </Card>
+</CardGroup>

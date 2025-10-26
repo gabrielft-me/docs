@@ -1,0 +1,709 @@
+---
+title: "Deployment Guide"
+description: "Best practices for deploying Auth-Agent SDK in production environments"
+---
+
+# Deployment Guide
+
+Learn how to deploy the Auth-Agent SDK in production with proper security, performance, and reliability.
+
+## Pre-Deployment Checklist
+
+<AccordionGroup>
+  <Accordion title="Security Configuration">
+    - [ ] Agent secret stored securely (environment variables, secrets manager)
+    - [ ] Redirect URIs properly configured and whitelisted - [ ] HTTPS enabled
+    on all endpoints - [ ] CORS configured correctly - [ ] Rate limiting
+    implemented
+  </Accordion>
+
+  <Accordion title="Token Management">
+    - [ ] Secure token storage implemented - [ ] Token refresh logic tested - [
+    ] Token expiration handling in place - [ ] Token revocation on logout
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    - [ ] Comprehensive error handling implemented - [ ] User-friendly error
+    messages - [ ] Error logging and monitoring - [ ] Retry logic for transient
+    failures
+  </Accordion>
+
+  <Accordion title="Testing">
+    - [ ] OAuth flow tested end-to-end - [ ] Token refresh tested - [ ] Error
+    scenarios tested - [ ] Load testing completed
+  </Accordion>
+</AccordionGroup>
+
+## Environment Configuration
+
+### Environment Variables
+
+```bash .env.production
+# Required
+AGENT_ID=your-production-agent-id
+AGENT_SECRET=your-production-agent-secret
+AUTH_SERVER_URL=https://api.auth-agent.com
+
+# Optional
+NODE_ENV=production
+REQUEST_TIMEOUT=15000
+ENABLE_DEBUG_LOGS=false
+
+# Redirect URIs
+OAUTH_REDIRECT_URI=https://your-app.com/auth/callback
+
+# Database (if using persistent storage)
+DATABASE_URL=postgresql://user:pass@host:5432/db
+REDIS_URL=redis://host:6379
+
+# Monitoring
+SENTRY_DSN=https://your-sentry-dsn
+LOG_LEVEL=info
+```
+
+### Configuration Best Practices
+
+```typescript
+import { AgentSDK } from "ai-auth";
+
+// Load from environment
+const config = {
+  agentId: process.env.AGENT_ID!,
+  agentSecret: process.env.AGENT_SECRET,
+  serverUrl: process.env.AUTH_SERVER_URL || "https://api.auth-agent.com",
+  timeout: parseInt(process.env.REQUEST_TIMEOUT || "15000", 10),
+};
+
+// Validate configuration
+if (!config.agentId) {
+  throw new Error("AGENT_ID environment variable is required");
+}
+
+if (process.env.NODE_ENV === "production" && !config.agentSecret) {
+  console.warn("AGENT_SECRET not configured for production");
+}
+
+const sdk = new AgentSDK(config);
+```
+
+## Secure Token Storage
+
+### Database Storage (Recommended)
+
+```typescript
+import { AgentSDK, TokenResponse } from "ai-auth";
+import { PrismaClient } from "@prisma/client";
+import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+
+const prisma = new PrismaClient();
+const ENCRYPTION_KEY = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY!, "hex");
+
+// Encrypt tokens before storing
+function encryptToken(token: string): string {
+  const iv = randomBytes(16);
+  const cipher = createCipheriv("aes-256-cbc", ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(token, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return `${iv.toString("hex")}:${encrypted}`;
+}
+
+// Decrypt tokens when retrieving
+function decryptToken(encrypted: string): string {
+  const [ivHex, encryptedData] = encrypted.split(":");
+  const iv = Buffer.from(ivHex, "hex");
+  const decipher = createDecipheriv("aes-256-cbc", ENCRYPTION_KEY, iv);
+  let decrypted = decipher.update(encryptedData, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+
+const sdk = new AgentSDK({
+  agentId: process.env.AGENT_ID!,
+  agentSecret: process.env.AGENT_SECRET,
+  onTokensReceived: async (tokens: TokenResponse) => {
+    await prisma.userTokens.create({
+      data: {
+        userId: currentUser.id,
+        accessToken: encryptToken(tokens.access_token),
+        refreshToken: tokens.refresh_token
+          ? encryptToken(tokens.refresh_token)
+          : null,
+        idToken: tokens.id_token ? encryptToken(tokens.id_token) : null,
+        expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+        scope: tokens.scope,
+      },
+    });
+  },
+  onTokensRefreshed: async (tokens: TokenResponse) => {
+    await prisma.userTokens.update({
+      where: { userId: currentUser.id },
+      data: {
+        accessToken: encryptToken(tokens.access_token),
+        refreshToken: tokens.refresh_token
+          ? encryptToken(tokens.refresh_token)
+          : null,
+        expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+      },
+    });
+  },
+  onTokensRevoked: async () => {
+    await prisma.userTokens.delete({
+      where: { userId: currentUser.id },
+    });
+  },
+});
+
+// Retrieve and decrypt tokens
+async function getAccessToken(userId: string): Promise<string | null> {
+  const userTokens = await prisma.userTokens.findUnique({
+    where: { userId },
+  });
+
+  if (!userTokens) return null;
+
+  // Check expiration
+  if (new Date() >= userTokens.expiresAt) {
+    // Refresh token
+    if (userTokens.refreshToken) {
+      const refreshToken = decryptToken(userTokens.refreshToken);
+      await sdk.refreshAccessToken(refreshToken);
+
+      // Fetch updated token
+      const updated = await prisma.userTokens.findUnique({
+        where: { userId },
+      });
+
+      return updated ? decryptToken(updated.accessToken) : null;
+    }
+
+    return null;
+  }
+
+  return decryptToken(userTokens.accessToken);
+}
+```
+
+### Redis Storage (for distributed systems)
+
+```typescript
+import { createClient } from "redis";
+import { AgentSDK, TokenResponse } from "ai-auth";
+
+const redis = createClient({
+  url: process.env.REDIS_URL,
+  socket: {
+    tls: process.env.NODE_ENV === "production",
+    rejectUnauthorized: true,
+  },
+});
+
+await redis.connect();
+
+const sdk = new AgentSDK({
+  agentId: process.env.AGENT_ID!,
+  agentSecret: process.env.AGENT_SECRET,
+  onTokensReceived: async (tokens: TokenResponse) => {
+    const key = `tokens:${currentUser.id}`;
+    const value = JSON.stringify({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      idToken: tokens.id_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+      scope: tokens.scope,
+    });
+
+    // Store with TTL
+    await redis.setEx(key, tokens.expires_in, value);
+  },
+  onTokensRefreshed: async (tokens: TokenResponse) => {
+    const key = `tokens:${currentUser.id}`;
+    const value = JSON.stringify({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      idToken: tokens.id_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+      scope: tokens.scope,
+    });
+
+    await redis.setEx(key, tokens.expires_in, value);
+  },
+  onTokensRevoked: async () => {
+    await redis.del(`tokens:${currentUser.id}`);
+  },
+});
+```
+
+## Performance Optimization
+
+### Connection Pooling
+
+```typescript
+// Reuse SDK instance across requests
+let sdkInstance: AgentSDK | null = null;
+
+export function getSDK(): AgentSDK {
+  if (!sdkInstance) {
+    sdkInstance = new AgentSDK({
+      agentId: process.env.AGENT_ID!,
+      agentSecret: process.env.AGENT_SECRET,
+      serverUrl: process.env.AUTH_SERVER_URL,
+      timeout: 15000,
+    });
+  }
+
+  return sdkInstance;
+}
+```
+
+### Caching
+
+```typescript
+import { AgentSDK } from "ai-auth";
+import NodeCache from "node-cache";
+
+const cache = new NodeCache({ stdTTL: 300 }); // 5 minutes
+
+async function getUserInfoCached(accessToken: string) {
+  const cacheKey = `userinfo:${accessToken}`;
+
+  // Check cache first
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Fetch from API
+  const sdk = getSDK();
+  const userInfo = await sdk.getUserInfo(accessToken);
+
+  // Cache result
+  cache.set(cacheKey, userInfo);
+
+  return userInfo;
+}
+```
+
+### Request Batching
+
+```typescript
+class BatchedAPIClient {
+  private pendingRequests: Map<string, Promise<any>> = new Map();
+
+  async getUserInfo(accessToken: string) {
+    const key = `userinfo:${accessToken}`;
+
+    // If request already in flight, return existing promise
+    if (this.pendingRequests.has(key)) {
+      return this.pendingRequests.get(key);
+    }
+
+    // Create new request
+    const promise = getSDK()
+      .getUserInfo(accessToken)
+      .finally(() => {
+        this.pendingRequests.delete(key);
+      });
+
+    this.pendingRequests.set(key, promise);
+    return promise;
+  }
+}
+```
+
+## Monitoring and Logging
+
+### Structured Logging
+
+```typescript
+import winston from "winston";
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || "info",
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.File({ filename: "error.log", level: "error" }),
+    new winston.transports.File({ filename: "combined.log" }),
+  ],
+});
+
+if (process.env.NODE_ENV !== "production") {
+  logger.add(
+    new winston.transports.Console({
+      format: winston.format.simple(),
+    })
+  );
+}
+
+// Log SDK operations
+const sdk = new AgentSDK({
+  agentId: process.env.AGENT_ID!,
+  agentSecret: process.env.AGENT_SECRET,
+  onTokensReceived: async (tokens) => {
+    logger.info("Tokens received", {
+      expiresIn: tokens.expires_in,
+      scope: tokens.scope,
+      hasRefreshToken: !!tokens.refresh_token,
+    });
+    await saveTokens(tokens);
+  },
+  onTokensRefreshed: async (tokens) => {
+    logger.info("Tokens refreshed", {
+      expiresIn: tokens.expires_in,
+    });
+    await updateTokens(tokens);
+  },
+  onTokensRevoked: async () => {
+    logger.info("Tokens revoked");
+    await clearTokens();
+  },
+});
+
+// Log errors
+try {
+  await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  logger.error("Token exchange failed", {
+    error: error.message,
+    code: error.code,
+    statusCode: error.statusCode,
+  });
+  throw error;
+}
+```
+
+### Health Checks
+
+```typescript
+import express from "express";
+
+const app = express();
+
+app.get("/health", async (req, res) => {
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    checks: {
+      database: "unknown",
+      redis: "unknown",
+      authServer: "unknown",
+    },
+  };
+
+  try {
+    // Check database
+    await prisma.$queryRaw`SELECT 1`;
+    health.checks.database = "healthy";
+  } catch (error) {
+    health.checks.database = "unhealthy";
+    health.status = "degraded";
+  }
+
+  try {
+    // Check Redis
+    await redis.ping();
+    health.checks.redis = "healthy";
+  } catch (error) {
+    health.checks.redis = "unhealthy";
+    health.status = "degraded";
+  }
+
+  try {
+    // Check auth server (discovery endpoint)
+    const response = await fetch(
+      `${process.env.AUTH_SERVER_URL}/.well-known/openid-configuration`
+    );
+    health.checks.authServer = response.ok ? "healthy" : "unhealthy";
+  } catch (error) {
+    health.checks.authServer = "unhealthy";
+    health.status = "degraded";
+  }
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+```
+
+## Security Hardening
+
+### Rate Limiting
+
+```typescript
+import rateLimit from "express-rate-limit";
+
+// Limit OAuth endpoints
+const oauthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 requests per window
+  message: "Too many authentication attempts, please try again later",
+});
+
+app.get("/auth/login", oauthLimiter, async (req, res) => {
+  const { url } = await sdk.getAuthorizationUrl({
+    redirectUri: process.env.OAUTH_REDIRECT_URI!,
+  });
+  res.redirect(url);
+});
+
+app.get("/auth/callback", oauthLimiter, async (req, res) => {
+  const { code, state } = req.query;
+  // ... handle callback
+});
+```
+
+### CSRF Protection
+
+```typescript
+import csrf from "csurf";
+
+const csrfProtection = csrf({ cookie: true });
+
+app.get("/auth/login", csrfProtection, async (req, res) => {
+  const { url, state } = await sdk.getAuthorizationUrl({
+    redirectUri: process.env.OAUTH_REDIRECT_URI!,
+  });
+
+  // Store state with CSRF token association
+  await redis.setEx(
+    `oauth:state:${state}`,
+    600, // 10 minutes
+    JSON.stringify({
+      csrfToken: req.csrfToken(),
+      timestamp: Date.now(),
+    })
+  );
+
+  res.redirect(url);
+});
+```
+
+### Secrets Management
+
+```typescript
+// Use a secrets manager in production
+import {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} from "@aws-sdk/client-secrets-manager";
+
+async function loadSecrets() {
+  if (process.env.NODE_ENV === "production") {
+    const client = new SecretsManagerClient({ region: "us-east-1" });
+
+    const response = await client.send(
+      new GetSecretValueCommand({
+        SecretId: "auth-agent-credentials",
+      })
+    );
+
+    const secrets = JSON.parse(response.SecretString!);
+
+    return {
+      agentId: secrets.AGENT_ID,
+      agentSecret: secrets.AGENT_SECRET,
+    };
+  } else {
+    return {
+      agentId: process.env.AGENT_ID!,
+      agentSecret: process.env.AGENT_SECRET,
+    };
+  }
+}
+
+const secrets = await loadSecrets();
+const sdk = new AgentSDK(secrets);
+```
+
+## Platform-Specific Deployment
+
+### Vercel / Netlify (Serverless)
+
+```typescript
+// api/auth/login.ts
+import { AgentSDK } from "ai-auth";
+
+const sdk = new AgentSDK({
+  agentId: process.env.AGENT_ID!,
+  serverUrl: process.env.AUTH_SERVER_URL,
+});
+
+export default async function handler(req, res) {
+  if (req.method === "GET") {
+    const { url } = await sdk.getAuthorizationUrl({
+      redirectUri: `${process.env.BASE_URL}/api/auth/callback`,
+    });
+
+    res.redirect(url);
+  } else {
+    res.status(405).json({ error: "Method not allowed" });
+  }
+}
+```
+
+### Docker
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Build TypeScript
+RUN npm run build
+
+# Set environment
+ENV NODE_ENV=production
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
+
+# Start application
+CMD ["node", "dist/index.js"]
+```
+
+```yaml docker-compose.yml
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - AGENT_ID=${AGENT_ID}
+      - AGENT_SECRET=${AGENT_SECRET}
+      - AUTH_SERVER_URL=${AUTH_SERVER_URL}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+```
+
+### Kubernetes
+
+```yaml deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-agent-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: auth-agent-app
+  template:
+    metadata:
+      labels:
+        app: auth-agent-app
+    spec:
+      containers:
+        - name: app
+          image: your-registry/auth-agent-app:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: AGENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: auth-credentials
+                  key: agent-id
+            - name: AGENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-credentials
+                  key: agent-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+```
+
+## Deployment Checklist
+
+<Steps>
+  <Step title="Environment Setup">
+    - Configure all environment variables - Set up secrets management -
+    Configure database and Redis
+  </Step>
+
+  <Step title="Security">
+    - Enable HTTPS - Configure CORS - Set up rate limiting - Enable CSRF
+    protection
+  </Step>
+
+  <Step title="Monitoring">
+    - Set up logging - Configure error tracking - Set up health checks - Enable
+    performance monitoring
+  </Step>
+
+  <Step title="Testing">
+    - Test OAuth flow end-to-end - Verify token refresh - Test error scenarios -
+    Run load tests
+  </Step>
+
+  <Step title="Deploy">
+    - Deploy to staging first - Smoke test staging - Deploy to production -
+    Monitor for issues
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Error Handling"
+    icon="triangle-exclamation"
+    href="/guides/error-handling"
+  >
+    Implement robust error handling
+  </Card>
+  <Card title="Token Refresh" icon="rotate" href="/guides/token-refresh">
+    Set up automatic token refresh
+  </Card>
+</CardGroup>

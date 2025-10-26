@@ -1,0 +1,243 @@
+---
+title: "API Overview"
+description: "Complete API reference for Auth-Agent OAuth 2.1 server"
+---
+
+## Base URL
+
+```
+Production: https://api.auth-agent.com
+Local Dev:  http://localhost:8787
+```
+
+## Authentication
+
+Most endpoints require authentication via Bearer token:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+## Endpoints by Category
+
+<CardGroup cols={2}>
+  <Card title="OAuth 2.1 Endpoints" icon="key" href="/api-reference/oauth">
+    Standard OAuth 2.1 and OpenID Connect endpoints
+  </Card>
+  <Card title="Agent Management" icon="robot" href="/api-reference/agents">
+    Register and manage AI agents
+  </Card>
+  <Card title="Token Operations" icon="coins" href="/api-reference/tokens">
+    Token exchange, refresh, and introspection
+  </Card>
+  <Card
+    title="User Information"
+    icon="user"
+    href="/api-reference/oauth/userinfo"
+  >
+    Retrieve authenticated user/agent information
+  </Card>
+</CardGroup>
+
+## OAuth 2.1 Endpoints
+
+| Endpoint                            | Method | Authentication     | Description                     |
+| ----------------------------------- | ------ | ------------------ | ------------------------------- |
+| `/oauth2/authorize`                 | GET    | None               | Start OAuth flow                |
+| `/oauth2/token`                     | POST   | PKCE/Refresh Token | Exchange code or refresh tokens |
+| `/oauth2/userinfo`                  | GET    | Bearer Token       | Get user information            |
+| `/.well-known/openid-configuration` | GET    | None               | OIDC discovery                  |
+
+## Agent Endpoints
+
+| Endpoint              | Method | Authentication    | Description          |
+| --------------------- | ------ | ----------------- | -------------------- |
+| `/api/register-agent` | POST   | None              | Register new agent   |
+| `/api/agent-auth`     | POST   | Agent Credentials | Authenticate agent   |
+| `/api/agents/profile` | GET    | Bearer Token      | Get agent profile    |
+| `/api/agents/profile` | PUT    | Bearer Token      | Update agent profile |
+
+## Response Format
+
+All API responses follow a consistent format:
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    // Response data here
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "error": "error_code",
+  "error_description": "Human-readable error message"
+}
+```
+
+## Common Error Codes
+
+<ResponseField name="invalid_request" type="400">
+  The request is missing required parameters or contains invalid values
+</ResponseField>
+
+<ResponseField name="invalid_client" type="401">
+  Client authentication failed or client ID not found
+</ResponseField>
+
+<ResponseField name="invalid_grant" type="401">
+  Invalid authorization code, refresh token, or PKCE verification failed
+</ResponseField>
+
+<ResponseField name="invalid_token" type="401">
+  Access token is invalid, expired, or revoked
+</ResponseField>
+
+<ResponseField name="insufficient_scope" type="403">
+  Token does not have required scopes for this operation
+</ResponseField>
+
+<ResponseField name="server_error" type="500">
+  Internal server error occurred
+</ResponseField>
+
+## Rate Limiting
+
+Rate limits are enforced per IP address and per client:
+
+<ParamField path="Registration" type="5 requests / hour">
+  Agent registration is limited to prevent abuse
+</ParamField>
+
+<ParamField path="Authentication" type="10 requests / minute">
+  Failed authentication attempts are rate limited
+</ParamField>
+
+<ParamField path="Token Refresh" type="60 requests / hour">
+  Token refresh requests per client
+</ParamField>
+
+<ParamField path="API Calls" type="1000 requests / hour">
+  General API calls with valid authentication
+</ParamField>
+
+### Rate Limit Headers
+
+```http
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 59
+X-RateLimit-Reset: 1699564800
+```
+
+## CORS Policy
+
+The server supports CORS for browser-based applications:
+
+```http
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Max-Age: 600
+```
+
+<Warning>
+  In production, configure specific origins instead of wildcard (`*`) for better
+  security.
+</Warning>
+
+## Scopes
+
+OAuth scopes control access to user data:
+
+<ResponseField name="openid" required>
+  Required for OpenID Connect. Provides `sub` claim.
+</ResponseField>
+
+<ResponseField name="profile">
+  Access to user profile information (name, agent_id, model_name)
+</ResponseField>
+
+<ResponseField name="email">Access to user email address</ResponseField>
+
+<ResponseField name="permissions">
+  Access to user permissions array
+</ResponseField>
+
+### Scope Format
+
+Multiple scopes are space-separated:
+
+```
+openid profile email permissions
+```
+
+## Testing
+
+### Test with cURL
+
+```bash
+# Register agent
+curl -X POST https://api.auth-agent.com/api/register-agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "test_agent",
+    "agent_secret": "Test123456!",
+    "model_name": "gpt-4",
+    "owner_name": "Test User",
+    "owner_email": "test@example.com"
+  }'
+
+# Get user info
+curl https://api.auth-agent.com/oauth2/userinfo \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Postman Collection
+
+Download our [Postman Collection](/assets/postman-collection.json) with pre-configured requests.
+
+## SDK Support
+
+Instead of calling the API directly, use our official SDKs:
+
+<CardGroup cols={3}>
+  <Card title="JavaScript/TypeScript" icon="js" href="/sdk/javascript/client">
+    For browsers and Node.js
+  </Card>
+  <Card title="React" icon="react" href="/sdk/react/getting-started">
+    Hooks and components
+  </Card>
+  <Card title="Python" icon="python" href="/sdk/python/getting-started">
+    For Python applications
+  </Card>
+</CardGroup>
+
+## Webhooks
+
+<Info>
+  Webhook support is coming soon. Subscribe to our newsletter to be notified
+  when available.
+</Info>
+
+## API Versioning
+
+Current API version: **v1**
+
+The API version is included in the base URL. We maintain backward compatibility within major versions.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OAuth Endpoints" icon="key" href="/api-reference/oauth">
+    Detailed OAuth 2.1 endpoint documentation
+  </Card>
+  <Card title="Agent Endpoints" icon="robot" href="/api-reference/agents">
+    Agent registration and management
+  </Card>
+</CardGroup>

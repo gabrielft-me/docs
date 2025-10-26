@@ -1,0 +1,1001 @@
+---
+title: "TypeScript Types"
+description: "Complete TypeScript type definitions for the Auth-Agent SDK"
+---
+
+# TypeScript Types
+
+Complete type reference for the Auth-Agent JavaScript/TypeScript SDK.
+
+## Configuration Types
+
+### SDKConfig
+
+Configuration object for initializing the AgentSDK.
+
+```typescript
+interface SDKConfig {
+  agentId: string;
+  agentSecret?: string;
+  serverUrl?: string;
+  timeout?: number;
+  customFetch?: typeof fetch;
+  onTokensReceived?: (tokens: TokenResponse) => void | Promise<void>;
+  onTokensRefreshed?: (tokens: TokenResponse) => void | Promise<void>;
+  onTokensRevoked?: () => void | Promise<void>;
+}
+```
+
+**Properties:**
+
+<ResponseField name="agentId" type="string" required>
+  Your unique agent identifier (client ID)
+</ResponseField>
+
+<ResponseField name="agentSecret" type="string">
+  Agent secret for confidential clients (optional)
+</ResponseField>
+
+<ResponseField name="serverUrl" type="string">
+  Auth server URL (default: `process.env.AUTH_SERVER_URL` or
+  `'https://api.auth-agent.com'`)
+</ResponseField>
+
+<ResponseField name="timeout" type="number">
+  Request timeout in milliseconds (default: `10000`)
+</ResponseField>
+
+<ResponseField name="customFetch" type="typeof fetch">
+  Custom fetch implementation for HTTP requests
+</ResponseField>
+
+<ResponseField
+  name="onTokensReceived"
+  type="(tokens: TokenResponse) => void | Promise<void>"
+>
+  Callback invoked when new tokens are received
+</ResponseField>
+
+<ResponseField
+  name="onTokensRefreshed"
+  type="(tokens: TokenResponse) => void | Promise<void>"
+>
+  Callback invoked when tokens are refreshed
+</ResponseField>
+
+<ResponseField name="onTokensRevoked" type="() => void | Promise<void>">
+  Callback invoked when tokens are revoked
+</ResponseField>
+
+**Example:**
+
+```typescript
+const config: SDKConfig = {
+  agentId: "my-agent",
+  agentSecret: "secret-key",
+  serverUrl: "https://api.auth-agent.com",
+  timeout: 15000,
+  onTokensReceived: async (tokens) => {
+    await db.saveTokens(tokens);
+  },
+};
+```
+
+---
+
+## OAuth & Token Types
+
+### TokenResponse
+
+OAuth 2.1 token response from the server.
+
+```typescript
+interface TokenResponse {
+  access_token: string;
+  token_type: "Bearer";
+  expires_in: number;
+  refresh_token?: string;
+  id_token?: string;
+  scope: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="access_token" type="string" required>
+  OAuth access token for API requests
+</ResponseField>
+
+<ResponseField name="token_type" type="'Bearer'" required>
+  Token type (always `'Bearer'`)
+</ResponseField>
+
+<ResponseField name="expires_in" type="number" required>
+  Seconds until token expiration
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string">
+  Refresh token for obtaining new access tokens
+</ResponseField>
+
+<ResponseField name="id_token" type="string">
+  OpenID Connect ID token (JWT)
+</ResponseField>
+
+<ResponseField name="scope" type="string" required>
+  Space-separated list of granted scopes
+</ResponseField>
+
+**Example:**
+
+```typescript
+const tokens: TokenResponse = {
+  access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  token_type: "Bearer",
+  expires_in: 3600,
+  refresh_token: "refresh_token_value",
+  id_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  scope: "openid profile email agent",
+};
+```
+
+---
+
+### TokenManager
+
+Interface for token manager state.
+
+```typescript
+interface TokenManager {
+  accessToken: string | null;
+  idToken: string | null;
+  refreshToken: string | null;
+  tokenType: string;
+  expiresAt: number | null;
+  scopes: string | null;
+}
+```
+
+**Properties:**
+
+<ResponseField name="accessToken" type="string | null">
+  Current access token
+</ResponseField>
+
+<ResponseField name="idToken" type="string | null">
+  Current OpenID Connect ID token
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string | null">
+  Current refresh token
+</ResponseField>
+
+<ResponseField name="tokenType" type="string">
+  Token type (always `'Bearer'`)
+</ResponseField>
+
+<ResponseField name="expiresAt" type="number | null">
+  Token expiration timestamp in milliseconds
+</ResponseField>
+
+<ResponseField name="scopes" type="string | null">
+  Space-separated list of granted scopes
+</ResponseField>
+
+---
+
+### AuthorizationUrlOptions
+
+Options for generating an authorization URL.
+
+```typescript
+interface AuthorizationUrlOptions {
+  redirectUri: string;
+  scope?: string;
+  state?: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="redirectUri" type="string" required>
+  OAuth callback URL
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  Space-separated list of requested scopes (default: `'openid profile email
+  agent'`)
+</ResponseField>
+
+<ResponseField name="state" type="string">
+  Custom state parameter for CSRF protection (auto-generated if not provided)
+</ResponseField>
+
+**Example:**
+
+```typescript
+const options: AuthorizationUrlOptions = {
+  redirectUri: "https://myapp.com/callback",
+  scope: "openid profile email agent",
+  state: "custom-state-value",
+};
+```
+
+---
+
+### PKCEPair
+
+PKCE code verifier and challenge pair.
+
+```typescript
+interface PKCEPair {
+  codeVerifier: string;
+  codeChallenge: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="codeVerifier" type="string" required>
+  Random base64url-encoded string (stored for token exchange)
+</ResponseField>
+
+<ResponseField name="codeChallenge" type="string" required>
+  SHA-256 hash of code verifier (sent to authorization server)
+</ResponseField>
+
+**Example:**
+
+```typescript
+const pkce: PKCEPair = {
+  codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+  codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+};
+```
+
+---
+
+## User & Agent Types
+
+### UserInfo
+
+OpenID Connect user information from `/oauth2/userinfo` endpoint.
+
+```typescript
+interface UserInfo {
+  sub: string;
+  agent_id: string;
+  name?: string;
+  email?: string;
+  model_name: string;
+  permissions?: string[];
+  [key: string]: any;
+}
+```
+
+**Properties:**
+
+<ResponseField name="sub" type="string" required>
+  Subject identifier (user ID)
+</ResponseField>
+
+<ResponseField name="agent_id" type="string" required>
+  Agent identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  User's display name
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  User's email address
+</ResponseField>
+
+<ResponseField name="model_name" type="string" required>
+  AI model name (e.g., 'gpt-4', 'claude-3')
+</ResponseField>
+
+<ResponseField name="permissions" type="string[]">
+  Array of granted permissions
+</ResponseField>
+
+**Example:**
+
+```typescript
+const userInfo: UserInfo = {
+  sub: "user-123",
+  agent_id: "my-agent",
+  name: "John Doe",
+  email: "john@example.com",
+  model_name: "gpt-4",
+  permissions: ["read", "write"],
+};
+```
+
+---
+
+### AgentProfile
+
+Agent profile information.
+
+```typescript
+interface AgentProfile {
+  agent_id: string;
+  model_name: string;
+  owner_name: string;
+  owner_email: string;
+  permissions: string[];
+  disabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="agent_id" type="string" required>
+  Unique agent identifier
+</ResponseField>
+
+<ResponseField name="model_name" type="string" required>
+  AI model name
+</ResponseField>
+
+<ResponseField name="owner_name" type="string" required>
+  Agent owner's name
+</ResponseField>
+
+<ResponseField name="owner_email" type="string" required>
+  Agent owner's email
+</ResponseField>
+
+<ResponseField name="permissions" type="string[]" required>
+  Array of agent permissions
+</ResponseField>
+
+<ResponseField name="disabled" type="boolean" required>
+  Whether agent is disabled
+</ResponseField>
+
+<ResponseField name="created_at" type="string" required>
+  ISO 8601 timestamp of creation
+</ResponseField>
+
+<ResponseField name="updated_at" type="string" required>
+  ISO 8601 timestamp of last update
+</ResponseField>
+
+**Example:**
+
+```typescript
+const profile: AgentProfile = {
+  agent_id: "my-agent",
+  model_name: "gpt-4",
+  owner_name: "Jane Doe",
+  owner_email: "jane@example.com",
+  permissions: ["read", "write", "admin"],
+  disabled: false,
+  created_at: "2024-01-15T10:30:00Z",
+  updated_at: "2024-02-20T14:45:00Z",
+};
+```
+
+---
+
+## Registration & Authentication Types
+
+### AgentRegistrationRequest
+
+Request payload for registering a new agent.
+
+```typescript
+interface AgentRegistrationRequest {
+  agent_id: string;
+  agent_secret: string;
+  model_name: string;
+  owner_name: string;
+  owner_email: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="agent_id" type="string" required>
+  Unique identifier for the agent
+</ResponseField>
+
+<ResponseField name="agent_secret" type="string" required>
+  Secure secret key for the agent
+</ResponseField>
+
+<ResponseField name="model_name" type="string" required>
+  AI model name (e.g., 'gpt-4', 'claude-3')
+</ResponseField>
+
+<ResponseField name="owner_name" type="string" required>
+  Agent owner's full name
+</ResponseField>
+
+<ResponseField name="owner_email" type="string" required>
+  Agent owner's email address
+</ResponseField>
+
+**Example:**
+
+```typescript
+const request: AgentRegistrationRequest = {
+  agent_id: "my-ai-agent",
+  agent_secret: "secure-random-secret",
+  model_name: "gpt-4",
+  owner_name: "John Doe",
+  owner_email: "john@example.com",
+};
+```
+
+---
+
+### AgentRegistrationResponse
+
+Response from agent registration.
+
+```typescript
+interface AgentRegistrationResponse {
+  success: boolean;
+  agent_id: string;
+  message: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="success" type="boolean" required>
+  Whether registration was successful
+</ResponseField>
+
+<ResponseField name="agent_id" type="string" required>
+  The registered agent ID
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Success or error message
+</ResponseField>
+
+**Example:**
+
+```typescript
+const response: AgentRegistrationResponse = {
+  success: true,
+  agent_id: "my-ai-agent",
+  message: "Agent registered successfully",
+};
+```
+
+---
+
+### AgentAuthRequest
+
+Request payload for agent authentication (legacy challenge flow).
+
+```typescript
+interface AgentAuthRequest {
+  agent_id: string;
+  agent_secret: string;
+  model_name: string;
+  client_id: string;
+  redirect_uri: string;
+  state?: string;
+  scope?: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="agent_id" type="string" required>
+  Agent identifier
+</ResponseField>
+
+<ResponseField name="agent_secret" type="string" required>
+  Agent secret key
+</ResponseField>
+
+<ResponseField name="model_name" type="string" required>
+  AI model name
+</ResponseField>
+
+<ResponseField name="client_id" type="string" required>
+  OAuth client ID
+</ResponseField>
+
+<ResponseField name="redirect_uri" type="string" required>
+  OAuth redirect URI
+</ResponseField>
+
+<ResponseField name="state" type="string">
+  OAuth state parameter
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  Requested scopes
+</ResponseField>
+
+<ResponseField name="code_challenge" type="string">
+  PKCE code challenge
+</ResponseField>
+
+<ResponseField name="code_challenge_method" type="string">
+  PKCE method (should be 'S256')
+</ResponseField>
+
+---
+
+### AgentAuthResponse
+
+Response from agent authentication.
+
+```typescript
+interface AgentAuthResponse {
+  session_id: string;
+  next_step: "challenge";
+  challenge_url: string;
+  expires_in: number;
+}
+```
+
+**Properties:**
+
+<ResponseField name="session_id" type="string" required>
+  Unique session identifier
+</ResponseField>
+
+<ResponseField name="next_step" type="'challenge'" required>
+  Next step in authentication flow
+</ResponseField>
+
+<ResponseField name="challenge_url" type="string" required>
+  URL for completing the challenge
+</ResponseField>
+
+<ResponseField name="expires_in" type="number" required>
+  Session expiration in seconds
+</ResponseField>
+
+---
+
+## Event & Verification Types
+
+### EventData
+
+Event data for tracking and analytics.
+
+```typescript
+interface EventData {
+  event: string;
+  selector?: string;
+  site?: string;
+  evidence?: string;
+  result?: string;
+  [key: string]: any;
+}
+```
+
+**Properties:**
+
+<ResponseField name="event" type="string" required>
+  Event type/name
+</ResponseField>
+
+<ResponseField name="selector" type="string">
+  CSS selector or element identifier
+</ResponseField>
+
+<ResponseField name="site" type="string">
+  Site or domain name
+</ResponseField>
+
+<ResponseField name="evidence" type="string">
+  Evidence or proof of action
+</ResponseField>
+
+<ResponseField name="result" type="string">
+  Event result or outcome
+</ResponseField>
+
+**Example:**
+
+```typescript
+const event: EventData = {
+  event: "click",
+  selector: "#purchase-button",
+  site: "store.example.com",
+  evidence: "oauth_authenticated",
+  customField: "custom value",
+};
+```
+
+---
+
+### ChallengeResponse
+
+Response from requesting a verification challenge.
+
+```typescript
+interface ChallengeResponse {
+  ok: boolean;
+  challenge?: string;
+  expires?: number;
+  sig?: string;
+  verify_ctx_id?: string;
+  message?: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="ok" type="boolean" required>
+  Whether request was successful
+</ResponseField>
+
+<ResponseField name="challenge" type="string">
+  Challenge string to verify
+</ResponseField>
+
+<ResponseField name="expires" type="number">
+  Challenge expiration timestamp
+</ResponseField>
+
+<ResponseField name="sig" type="string">
+  Challenge signature
+</ResponseField>
+
+<ResponseField name="verify_ctx_id" type="string">
+  Verification context ID
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Response message
+</ResponseField>
+
+**Example:**
+
+```typescript
+const challengeResponse: ChallengeResponse = {
+  ok: true,
+  challenge: "verify-123-abc",
+  expires: 1735689600,
+  sig: "signature-value",
+  verify_ctx_id: "ctx-456-def",
+};
+```
+
+---
+
+### VerificationConfirmRequest
+
+Request payload for confirming verification.
+
+```typescript
+interface VerificationConfirmRequest {
+  challenge: string;
+  expires: number;
+  sig: string;
+  verify_ctx_id: string;
+}
+```
+
+**Properties:**
+
+<ResponseField name="challenge" type="string" required>
+  Challenge string from ChallengeResponse
+</ResponseField>
+
+<ResponseField name="expires" type="number" required>
+  Challenge expiration timestamp
+</ResponseField>
+
+<ResponseField name="sig" type="string" required>
+  Challenge signature
+</ResponseField>
+
+<ResponseField name="verify_ctx_id" type="string" required>
+  Verification context ID
+</ResponseField>
+
+**Example:**
+
+```typescript
+const confirmRequest: VerificationConfirmRequest = {
+  challenge: "verify-123-abc",
+  expires: 1735689600,
+  sig: "signature-value",
+  verify_ctx_id: "ctx-456-def",
+};
+```
+
+---
+
+### IntrospectionResponse
+
+Token introspection response.
+
+```typescript
+interface IntrospectionResponse {
+  active: boolean;
+  scope?: string;
+  client_id?: string;
+  username?: string;
+  token_type?: string;
+  exp?: number;
+  iat?: number;
+  sub?: string;
+  [key: string]: any;
+}
+```
+
+**Properties:**
+
+<ResponseField name="active" type="boolean" required>
+  Whether token is active and valid
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  Space-separated list of scopes
+</ResponseField>
+
+<ResponseField name="client_id" type="string">
+  Client identifier
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Username (if available)
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Token type
+</ResponseField>
+
+<ResponseField name="exp" type="number">
+  Expiration timestamp (Unix time)
+</ResponseField>
+
+<ResponseField name="iat" type="number">
+  Issued at timestamp (Unix time)
+</ResponseField>
+
+<ResponseField name="sub" type="string">
+  Subject identifier
+</ResponseField>
+
+**Example:**
+
+```typescript
+const introspection: IntrospectionResponse = {
+  active: true,
+  scope: "openid profile email agent",
+  client_id: "my-agent",
+  token_type: "Bearer",
+  exp: 1735689600,
+  iat: 1735686000,
+  sub: "user-123",
+};
+```
+
+---
+
+## Error Types
+
+### AuthError
+
+Extended error type for authentication errors.
+
+```typescript
+interface AuthError extends Error {
+  code: string;
+  description?: string;
+  statusCode?: number;
+}
+```
+
+**Properties:**
+
+<ResponseField name="code" type="string" required>
+  Error code (e.g., 'token_expired', 'state_mismatch')
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Human-readable error description
+</ResponseField>
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code (if applicable)
+</ResponseField>
+
+**Example:**
+
+```typescript
+try {
+  await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  const authError = error as AuthError;
+
+  console.error("Code:", authError.code);
+  console.error("Description:", authError.description);
+  console.error("Status:", authError.statusCode);
+
+  if (authError.code === "token_expired") {
+    // Handle expired token
+  }
+}
+```
+
+**Common Error Codes:**
+
+- `state_mismatch` - State parameter mismatch (CSRF)
+- `pkce_missing` - Code verifier not found
+- `token_expired` - Access token expired
+- `forbidden` - Insufficient permissions
+- `no_refresh_token` - Refresh token not provided
+- `refresh_failed` - Token refresh failed
+- `revoke_failed` - Token revocation failed
+- `introspection_failed` - Token introspection failed
+- `no_token` - Token required but not provided
+
+---
+
+## Type Guards
+
+You can use TypeScript type guards to safely work with SDK types:
+
+```typescript
+function isTokenResponse(obj: any): obj is TokenResponse {
+  return (
+    typeof obj === "object" &&
+    typeof obj.access_token === "string" &&
+    obj.token_type === "Bearer" &&
+    typeof obj.expires_in === "number"
+  );
+}
+
+function isAuthError(error: any): error is AuthError {
+  return (
+    error instanceof Error && "code" in error && typeof error.code === "string"
+  );
+}
+
+// Usage
+try {
+  const tokens = await sdk.exchangeCode(code, state, redirectUri);
+
+  if (isTokenResponse(tokens)) {
+    console.log("Valid token response");
+  }
+} catch (error) {
+  if (isAuthError(error)) {
+    console.error("Auth error:", error.code);
+  }
+}
+```
+
+## Complete Type Usage Example
+
+```typescript
+import type {
+  SDKConfig,
+  TokenResponse,
+  UserInfo,
+  AgentProfile,
+  AgentRegistrationRequest,
+  AgentRegistrationResponse,
+  EventData,
+  ChallengeResponse,
+  VerificationConfirmRequest,
+  IntrospectionResponse,
+  AuthError,
+  PKCEPair,
+  AuthorizationUrlOptions,
+} from "ai-auth";
+
+// Configuration
+const config: SDKConfig = {
+  agentId: "my-agent",
+  agentSecret: "secret",
+  serverUrl: "https://api.auth-agent.com",
+  timeout: 15000,
+  onTokensReceived: async (tokens: TokenResponse) => {
+    await saveTokens(tokens);
+  },
+};
+
+// Registration
+const registrationRequest: AgentRegistrationRequest = {
+  agent_id: "my-agent",
+  agent_secret: "secret",
+  model_name: "gpt-4",
+  owner_name: "John Doe",
+  owner_email: "john@example.com",
+};
+
+const registrationResponse: AgentRegistrationResponse = await sdk.registerAgent(
+  registrationRequest
+);
+
+// OAuth Flow
+const authOptions: AuthorizationUrlOptions = {
+  redirectUri: "https://myapp.com/callback",
+  scope: "openid profile email agent",
+};
+
+const { url, codeVerifier, state } = await sdk.getAuthorizationUrl(authOptions);
+
+// Token handling
+const tokens: TokenResponse = await sdk.exchangeCode(code, state, redirectUri);
+
+// User info
+const userInfo: UserInfo = await sdk.getUserInfo(tokens.access_token);
+
+// Agent profile
+const profile: AgentProfile = await sdk.getAgentProfile(tokens.access_token);
+
+// Events
+const eventData: EventData = {
+  event: "click",
+  selector: "#button",
+  site: "example.com",
+};
+await sdk.sendEvent(tokens.access_token, eventData);
+
+// Verification
+const challenge: ChallengeResponse = await sdk.requestChallenge(
+  tokens.access_token
+);
+
+if (challenge.ok && challenge.challenge) {
+  const confirmRequest: VerificationConfirmRequest = {
+    challenge: challenge.challenge,
+    expires: challenge.expires!,
+    sig: challenge.sig!,
+    verify_ctx_id: challenge.verify_ctx_id!,
+  };
+
+  await sdk.confirmVerification(tokens.access_token, confirmRequest);
+}
+
+// Token introspection
+const introspection: IntrospectionResponse = await sdk.introspectToken(
+  tokens.access_token
+);
+
+if (introspection.active) {
+  console.log("Token is valid");
+}
+
+// Error handling
+try {
+  await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  const authError = error as AuthError;
+  console.error(authError.code, authError.description);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Getting Started"
+    icon="rocket"
+    href="/sdk/javascript/getting-started"
+  >
+    Learn how to use the SDK
+  </Card>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Explore all available methods
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdk/javascript/configuration">
+    SDK configuration options
+  </Card>
+  <Card title="Examples" icon="book" href="/examples/overview">
+    See practical examples
+  </Card>
+</CardGroup>

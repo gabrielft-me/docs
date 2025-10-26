@@ -1,0 +1,278 @@
+---
+title: Quick Start
+description: "Get started with Auth-Agent in under 5 minutes"
+---
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install ai-auth
+```
+
+```bash yarn
+yarn add ai-auth
+```
+
+```bash pnpm
+pnpm add ai-auth
+```
+
+</CodeGroup>
+
+## 1. Register Your Agent
+
+Before you can authenticate, you need to register your AI agent:
+
+<Steps>
+  <Step title="Visit Registration Page">
+    Go to the registration endpoint or use the demo frontend at `/register`
+  </Step>
+
+  <Step title="Fill Registration Form">
+    Provide your agent details: - **Agent ID**: Unique identifier (e.g.,
+    `my_agent_123`) - **Agent Secret**: Strong password (min 8 characters) -
+    **Model Name**: AI model being used (e.g., `gpt-4`) - **Owner Name**: Your
+    name - **Owner Email**: Your email address
+  </Step>
+
+  <Step title="Get Your Credentials">
+    Save your `agent_id` - this becomes your OAuth `client_id`
+  </Step>
+</Steps>
+
+<Note>
+  The `agent_id` is your OAuth client ID. Keep your `agent_secret` secure!
+</Note>
+
+## 2. React Application Setup
+
+### Wrap Your App with AuthProvider
+
+```tsx App.tsx
+import { AuthProvider } from "ai-auth";
+import { BrowserRouter } from "react-router-dom";
+
+function App() {
+  return (
+    <AuthProvider
+      config={{
+        clientId: "your_agent_id",
+        redirectUri: "http://localhost:3000/callback",
+        authServerUrl: "http://localhost:8787",
+        scope: "openid profile email",
+      }}
+    >
+      <BrowserRouter>{/* Your app routes */}</BrowserRouter>
+    </AuthProvider>
+  );
+}
+```
+
+### Add the Sign-In Button
+
+```tsx Login.tsx
+import { SignInWithAuthAgent } from "ai-auth";
+
+export function LoginPage() {
+  return (
+    <div>
+      <h1>Login</h1>
+      <SignInWithAuthAgent
+        clientId="your_agent_id"
+        redirectUri="http://localhost:3000/callback"
+        authServerUrl="http://localhost:8787"
+        width={320}
+        height={56}
+      />
+    </div>
+  );
+}
+```
+
+### Handle the OAuth Callback
+
+```tsx Callback.tsx
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "ai-auth";
+
+export function CallbackPage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, isLoading, error } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (isAuthenticated) {
+        navigate("/dashboard");
+      } else if (error) {
+        navigate("/login");
+      }
+    }
+  }, [isAuthenticated, isLoading, error, navigate]);
+
+  return <div>Completing authentication...</div>;
+}
+```
+
+### Use Authentication State
+
+```tsx Dashboard.tsx
+import { useAuth, ProtectedRoute } from "ai-auth";
+
+function DashboardContent() {
+  const { user, logout } = useAuth();
+
+  return (
+    <div>
+      <h1>Welcome, {user?.name}!</h1>
+      <p>Agent ID: {user?.agent_id}</p>
+      <p>Model: {user?.model_name}</p>
+      <button onClick={logout}>Logout</button>
+    </div>
+  );
+}
+
+export function Dashboard() {
+  return (
+    <ProtectedRoute>
+      <DashboardContent />
+    </ProtectedRoute>
+  );
+}
+```
+
+## 3. Vanilla JavaScript Setup
+
+For non-React applications:
+
+```html index.html
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Auth-Agent Demo</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script type="module">
+      import { AuthAgentClient } from "ai-auth";
+
+      const client = new AuthAgentClient({
+        clientId: "your_agent_id",
+        redirectUri: "http://localhost:3000",
+        authServerUrl: "http://localhost:8787",
+      });
+
+      // Check if handling callback
+      if (window.location.search.includes("code=")) {
+        const result = await client.handleCallback();
+        if (result.success) {
+          console.log("Logged in!", result.user);
+        }
+      } else if (client.isAuthenticated()) {
+        const user = await client.getUserInfo();
+        console.log("User:", user);
+      } else {
+        // Show login button
+        document.getElementById("app").innerHTML = `
+        <button onclick="login()">Sign in with Auth-Agent</button>
+      `;
+      }
+
+      window.login = () => client.redirectToLogin();
+    </script>
+  </body>
+</html>
+```
+
+## 4. Test Your Integration
+
+<Steps>
+  <Step title="Start Your App">Run your development server</Step>
+
+  <Step title="Click Sign In">Click the "Sign in with Auth-Agent" button</Step>
+
+  <Step title="Authenticate">
+    Enter your agent credentials on the auth page
+  </Step>
+
+  <Step title="Success!">
+    You'll be redirected back to your app with a valid session
+  </Step>
+</Steps>
+
+## Configuration Options
+
+<ParamField path="clientId" type="string" required>
+  Your agent ID (obtained during registration)
+</ParamField>
+
+<ParamField path="redirectUri" type="string" required>
+  Where to redirect after authentication
+</ParamField>
+
+<ParamField
+  path="authServerUrl"
+  type="string"
+  default="https://api.auth-agent.com"
+>
+  Auth-Agent server URL
+</ParamField>
+
+<ParamField path="scope" type="string" default="openid profile email">
+  OAuth scopes to request
+</ParamField>
+
+<ParamField path="storage" type="string" default="localStorage">
+  Token storage: `localStorage`, `sessionStorage`, or `memory`
+</ParamField>
+
+<ParamField path="autoRefresh" type="boolean" default={true}>
+  Automatically refresh tokens before expiration
+</ParamField>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Explore React Hooks" icon="react" href="/sdk/react/hooks">
+    Learn about useAuth, useUser, and more
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Complete API documentation
+  </Card>
+  <Card
+    title="Protected Routes"
+    icon="shield"
+    href="/sdk/react/protected-routes"
+  >
+    Secure your routes and components
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/examples">
+    See complete working examples
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Client ID is not registered">
+    Make sure you've completed agent registration first. Visit `/register` to create your agent.
+  </Accordion>
+
+{" "}
+<Accordion title="redirect_uri mismatch">
+  The `redirectUri` must exactly match what you registered. Check protocol,
+  domain, port, and path.
+</Accordion>
+
+{" "}
+<Accordion title="PKCE verification failed">
+  Clear localStorage and try again. Make sure cookies are enabled.
+</Accordion>
+
+  <Accordion title="Server not responding">
+    Ensure the Auth-Agent server is running and accessible at the configured URL.
+  </Accordion>
+</AccordionGroup>

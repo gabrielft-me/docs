@@ -1,0 +1,541 @@
+---
+title: "Token Refresh Guide"
+description: "Learn how to handle token expiration and implement automatic token refresh"
+---
+
+# Token Refresh Guide
+
+This guide covers best practices for handling token expiration and implementing automatic token refresh in your application.
+
+## Understanding Token Expiration
+
+OAuth access tokens have a limited lifetime (typically 1 hour). When they expire, you need to either:
+
+1. Refresh the token using a refresh token
+2. Re-authenticate the user
+
+## Basic Token Refresh
+
+### Using the SDK
+
+The simplest way to refresh tokens:
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+// Check if token is expired and refresh if needed
+async function getValidAccessToken(): Promise<string> {
+  if (tokenManager.isExpired()) {
+    if (tokenManager.refreshToken) {
+      console.log("Token expired, refreshing...");
+      await sdk.refreshAccessToken(tokenManager.refreshToken);
+    } else {
+      throw new Error("No refresh token available");
+    }
+  }
+
+  return tokenManager.getAccessToken();
+}
+
+// Use in your API calls
+const accessToken = await getValidAccessToken();
+const userInfo = await sdk.getUserInfo(accessToken);
+```
+
+## Automatic Token Refresh
+
+### Strategy 1: Refresh on Demand
+
+Check token expiration before each API call:
+
+```typescript
+class APIClient {
+  private sdk: AgentSDK;
+  private tokenManager: TokenManager;
+
+  constructor(sdk: AgentSDK, tokenManager: TokenManager) {
+    this.sdk = sdk;
+    this.tokenManager = tokenManager;
+  }
+
+  private async ensureValidToken(): Promise<string> {
+    if (this.tokenManager.isExpired()) {
+      if (this.tokenManager.refreshToken) {
+        await this.sdk.refreshAccessToken(this.tokenManager.refreshToken);
+      } else {
+        throw new Error("Session expired, please login again");
+      }
+    }
+
+    return this.tokenManager.getAccessToken();
+  }
+
+  async getUserInfo() {
+    const token = await this.ensureValidToken();
+    return this.sdk.getUserInfo(token);
+  }
+
+  async getProfile() {
+    const token = await this.ensureValidToken();
+    return this.sdk.getAgentProfile(token);
+  }
+}
+```
+
+### Strategy 2: Proactive Refresh
+
+Refresh tokens before they expire:
+
+```typescript
+import { getTimeUntilExpiry, sleep } from "ai-auth";
+
+async function startTokenRefreshLoop(
+  sdk: AgentSDK,
+  tokenManager: TokenManager
+) {
+  const refreshBuffer = 5 * 60 * 1000; // Refresh 5 minutes before expiry
+
+  while (true) {
+    if (tokenManager.expiresAt && tokenManager.refreshToken) {
+      const timeLeft = getTimeUntilExpiry(tokenManager.expiresAt);
+
+      if (timeLeft < refreshBuffer) {
+        try {
+          console.log("Proactively refreshing token...");
+          await sdk.refreshAccessToken(tokenManager.refreshToken);
+          console.log("Token refreshed successfully");
+        } catch (error) {
+          console.error("Failed to refresh token:", error);
+          // Handle refresh failure (e.g., redirect to login)
+          break;
+        }
+      }
+    }
+
+    // Check every minute
+    await sleep(60000);
+  }
+}
+
+// Start the loop in the background
+startTokenRefreshLoop(sdk, tokenManager);
+```
+
+### Strategy 3: Refresh on 401 Response
+
+Retry failed requests after refreshing:
+
+```typescript
+async function makeAuthenticatedRequest<T>(
+  sdk: AgentSDK,
+  tokenManager: TokenManager,
+  requestFn: (token: string) => Promise<T>,
+  maxRetries = 1
+): Promise<T> {
+  let retries = 0;
+
+  while (retries <= maxRetries) {
+    try {
+      const token = tokenManager.getAccessToken();
+      return await requestFn(token);
+    } catch (error: any) {
+      if (error.statusCode === 401 && retries < maxRetries) {
+        // Token expired, try to refresh
+        if (tokenManager.refreshToken) {
+          console.log("Received 401, refreshing token...");
+          await sdk.refreshAccessToken(tokenManager.refreshToken);
+          retries++;
+          continue;
+        } else {
+          throw new Error("Session expired, please login again");
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+}
+
+// Usage
+const userInfo = await makeAuthenticatedRequest(sdk, tokenManager, (token) =>
+  sdk.getUserInfo(token)
+);
+```
+
+## Handling Refresh Failures
+
+### Graceful Degradation
+
+```typescript
+async function refreshTokenSafely(
+  sdk: AgentSDK,
+  tokenManager: TokenManager,
+  onRefreshFailed: () => void
+): Promise<boolean> {
+  if (!tokenManager.refreshToken) {
+    console.error("No refresh token available");
+    onRefreshFailed();
+    return false;
+  }
+
+  try {
+    await sdk.refreshAccessToken(tokenManager.refreshToken);
+    return true;
+  } catch (error: any) {
+    console.error("Token refresh failed:", error);
+
+    if (error.statusCode === 401 || error.code === "refresh_failed") {
+      // Refresh token expired or invalid
+      console.log("Refresh token invalid, clearing session");
+      tokenManager.clear();
+      onRefreshFailed();
+      return false;
+    }
+
+    // Network error or temporary issue
+    console.log("Temporary refresh failure, will retry");
+    return false;
+  }
+}
+
+// Usage
+const success = await refreshTokenSafely(sdk, tokenManager, () => {
+  // Redirect to login
+  window.location.href = "/login";
+});
+```
+
+### Exponential Backoff
+
+```typescript
+import { sleep } from "ai-auth";
+
+async function refreshWithRetry(
+  sdk: AgentSDK,
+  refreshToken: string,
+  maxRetries = 3
+): Promise<TokenResponse> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await sdk.refreshAccessToken(refreshToken);
+    } catch (error: any) {
+      // Don't retry on auth errors
+      if (error.statusCode === 401 || error.code === "refresh_failed") {
+        throw error;
+      }
+
+      // Last attempt
+      if (i === maxRetries - 1) {
+        throw error;
+      }
+
+      // Exponential backoff
+      const delay = Math.pow(2, i) * 1000;
+      console.log(`Refresh failed, retrying in ${delay}ms...`);
+      await sleep(delay);
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+}
+```
+
+## Token Refresh with Persistent Storage
+
+### Database Storage
+
+```typescript
+import { AgentSDK, TokenResponse } from "ai-auth";
+import Database from "./database";
+
+const db = new Database();
+
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  onTokensReceived: async (tokens: TokenResponse) => {
+    await db.tokens.create({
+      userId: currentUser.id,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + tokens.expires_in * 1000,
+    });
+  },
+  onTokensRefreshed: async (tokens: TokenResponse) => {
+    await db.tokens.update({
+      where: { userId: currentUser.id },
+      data: {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      },
+    });
+  },
+});
+
+async function getValidTokenFromDB(userId: string): Promise<string> {
+  const stored = await db.tokens.findUnique({
+    where: { userId },
+  });
+
+  if (!stored) {
+    throw new Error("No tokens found");
+  }
+
+  // Check if expired
+  if (Date.now() >= stored.expiresAt) {
+    // Refresh
+    const newTokens = await sdk.refreshAccessToken(stored.refreshToken);
+    return newTokens.access_token;
+  }
+
+  return stored.accessToken;
+}
+```
+
+### Redis Storage
+
+```typescript
+import { createClient } from "redis";
+
+const redis = createClient();
+await redis.connect();
+
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  onTokensReceived: async (tokens: TokenResponse) => {
+    await redis.setEx(
+      `tokens:${userId}`,
+      tokens.expires_in,
+      JSON.stringify({
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      })
+    );
+  },
+  onTokensRefreshed: async (tokens: TokenResponse) => {
+    await redis.setEx(
+      `tokens:${userId}`,
+      tokens.expires_in,
+      JSON.stringify({
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      })
+    );
+  },
+});
+
+async function getValidTokenFromRedis(userId: string): Promise<string> {
+  const stored = await redis.get(`tokens:${userId}`);
+
+  if (!stored) {
+    throw new Error("No tokens found");
+  }
+
+  const tokens = JSON.parse(stored);
+
+  if (Date.now() >= tokens.expiresAt) {
+    const newTokens = await sdk.refreshAccessToken(tokens.refreshToken);
+    return newTokens.access_token;
+  }
+
+  return tokens.accessToken;
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use refresh tokens when available">
+    Refresh tokens allow seamless token renewal without user interaction. Always
+    store and use them.
+  </Accordion>
+
+  <Accordion title="Refresh proactively, not reactively">
+    Refresh tokens 5-10 minutes before expiration to avoid interruptions during
+    critical operations.
+  </Accordion>
+
+  <Accordion title="Handle refresh failures gracefully">
+    If refresh fails, clear the session and redirect to login. Don't leave users
+    in a broken state.
+  </Accordion>
+
+  <Accordion title="Use single refresh logic">
+    Centralize token refresh logic to avoid race conditions from multiple
+    simultaneous refresh attempts.
+  </Accordion>
+
+  <Accordion title="Store tokens securely">
+    Encrypt tokens in persistent storage. Never expose refresh tokens in
+    client-side code.
+  </Accordion>
+</AccordionGroup>
+
+## Common Pitfalls
+
+### Race Conditions
+
+**Problem:** Multiple simultaneous API calls trigger multiple refresh attempts.
+
+**Solution:** Use a refresh lock:
+
+```typescript
+class TokenRefreshManager {
+  private refreshPromise: Promise<TokenResponse> | null = null;
+
+  async refreshToken(
+    sdk: AgentSDK,
+    refreshToken: string
+  ): Promise<TokenResponse> {
+    // If refresh is already in progress, return the existing promise
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    // Start new refresh
+    this.refreshPromise = sdk.refreshAccessToken(refreshToken).finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
+  }
+}
+```
+
+### Expired Refresh Tokens
+
+**Problem:** Refresh token expires while app is inactive.
+
+**Solution:** Check token validity on app startup:
+
+```typescript
+async function initializeSession() {
+  const tokens = await storage.getTokens();
+
+  if (!tokens) {
+    return redirectToLogin();
+  }
+
+  try {
+    // Try to refresh to verify token is valid
+    await sdk.refreshAccessToken(tokens.refreshToken);
+  } catch (error) {
+    console.error("Session expired");
+    await storage.clearTokens();
+    redirectToLogin();
+  }
+}
+```
+
+## Complete Example
+
+```typescript
+import { AgentSDK, TokenManager, getTimeUntilExpiry, sleep } from "ai-auth";
+
+class AuthService {
+  private sdk: AgentSDK;
+  private tokenManager: TokenManager;
+  private refreshPromise: Promise<void> | null = null;
+
+  constructor() {
+    this.tokenManager = new TokenManager();
+    this.sdk = new AgentSDK({
+      agentId: process.env.AGENT_ID!,
+      onTokensReceived: (tokens) => this.tokenManager.setTokens(tokens),
+      onTokensRefreshed: (tokens) => this.tokenManager.setTokens(tokens),
+      onTokensRevoked: () => this.tokenManager.clear(),
+    });
+
+    // Start proactive refresh loop
+    this.startRefreshLoop();
+  }
+
+  private async startRefreshLoop() {
+    while (true) {
+      if (this.tokenManager.expiresAt && this.tokenManager.refreshToken) {
+        const timeLeft = getTimeUntilExpiry(this.tokenManager.expiresAt);
+        const fiveMinutes = 5 * 60 * 1000;
+
+        if (timeLeft < fiveMinutes) {
+          await this.ensureValidToken();
+        }
+      }
+
+      await sleep(60000); // Check every minute
+    }
+  }
+
+  async ensureValidToken(): Promise<string> {
+    // If refresh is in progress, wait for it
+    if (this.refreshPromise) {
+      await this.refreshPromise;
+    }
+
+    // Check if still expired
+    if (this.tokenManager.isExpired()) {
+      if (!this.tokenManager.refreshToken) {
+        throw new Error("No refresh token available");
+      }
+
+      // Start refresh
+      this.refreshPromise = this.performRefresh().finally(() => {
+        this.refreshPromise = null;
+      });
+
+      await this.refreshPromise;
+    }
+
+    return this.tokenManager.getAccessToken();
+  }
+
+  private async performRefresh(): Promise<void> {
+    try {
+      await this.sdk.refreshAccessToken(this.tokenManager.refreshToken!);
+    } catch (error: any) {
+      console.error("Token refresh failed:", error);
+
+      if (error.statusCode === 401) {
+        // Refresh token expired
+        this.tokenManager.clear();
+        throw new Error("Session expired");
+      }
+
+      throw error;
+    }
+  }
+
+  async getUserInfo() {
+    const token = await this.ensureValidToken();
+    return this.sdk.getUserInfo(token);
+  }
+}
+
+export default new AuthService();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Error Handling"
+    icon="triangle-exclamation"
+    href="/guides/error-handling"
+  >
+    Learn how to handle errors
+  </Card>
+  <Card title="Token Manager" icon="key" href="/sdk/javascript/token-manager">
+    Token management utilities
+  </Card>
+</CardGroup>

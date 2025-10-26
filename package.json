@@ -1,0 +1,19 @@
+{
+  "name": "auth-agent-docs",
+  "version": "1.0.0",
+  "description": "Auth-Agent documentation powered by Mintlify",
+  "scripts": {
+    "dev": "mintlify dev",
+    "install:mintlify": "npm i -g mintlify",
+    "preview": "mintlify dev --port 3001"
+  },
+  "keywords": [
+    "documentation",
+    "auth-agent",
+    "oauth",
+    "mintlify"
+  ],
+  "author": "Auth-Agent Team",
+  "license": "MIT"
+}
+

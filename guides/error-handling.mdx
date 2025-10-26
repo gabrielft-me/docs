@@ -1,0 +1,621 @@
+---
+title: "Error Handling Guide"
+description: "Best practices for handling errors in the Auth-Agent SDK"
+---
+
+# Error Handling Guide
+
+Learn how to properly handle errors and implement robust error recovery in your Auth-Agent implementation.
+
+## Error Types
+
+### AuthError
+
+All SDK methods throw `AuthError` objects with detailed information:
+
+```typescript
+interface AuthError extends Error {
+  code: string; // Error code
+  description?: string; // Human-readable description
+  statusCode?: number; // HTTP status code
+}
+```
+
+### Common Error Codes
+
+<ResponseField name="token_expired" type="401">
+  Access token has expired. Refresh the token or re-authenticate.
+</ResponseField>
+
+<ResponseField name="refresh_failed" type="401">
+  Refresh token is invalid or expired. User must re-authenticate.
+</ResponseField>
+
+<ResponseField name="state_mismatch" type="400">
+  OAuth state parameter mismatch. Possible CSRF attack.
+</ResponseField>
+
+<ResponseField name="pkce_missing" type="400">
+  Code verifier not found. Must call getAuthorizationUrl() first.
+</ResponseField>
+
+<ResponseField name="forbidden" type="403">
+  Insufficient permissions for the requested operation.
+</ResponseField>
+
+<ResponseField name="no_refresh_token" type="400">
+  No refresh token provided for refresh operation.
+</ResponseField>
+
+<ResponseField name="no_token" type="400">
+  Token required but not provided.
+</ResponseField>
+
+<ResponseField name="revoke_failed" type="400">
+  Token revocation failed.
+</ResponseField>
+
+<ResponseField name="introspection_failed" type="400">
+  Token introspection failed.
+</ResponseField>
+
+## Basic Error Handling
+
+### Try-Catch Pattern
+
+```typescript
+import type { AuthError } from "ai-auth";
+
+try {
+  const tokens = await sdk.exchangeCode(code, state, redirectUri);
+  console.log("Success!", tokens);
+} catch (error) {
+  const authError = error as AuthError;
+
+  console.error("Error:", authError.code);
+  console.error("Description:", authError.description);
+  console.error("Status:", authError.statusCode);
+}
+```
+
+### Specific Error Handling
+
+```typescript
+try {
+  const tokens = await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  const authError = error as AuthError;
+
+  switch (authError.code) {
+    case "state_mismatch":
+      console.error("CSRF attack detected!");
+      redirectToError("Security violation detected");
+      break;
+
+    case "pkce_missing":
+      console.error("Invalid OAuth flow");
+      redirectToLogin();
+      break;
+
+    default:
+      console.error("Unknown error:", authError.description);
+      showErrorMessage(authError.description);
+      break;
+  }
+}
+```
+
+## Handling Specific Scenarios
+
+### Token Expiration
+
+```typescript
+async function makeAuthenticatedRequest() {
+  try {
+    const accessToken = tokenManager.getAccessToken();
+    return await sdk.getUserInfo(accessToken);
+  } catch (error) {
+    const authError = error as AuthError;
+
+    if (authError.code === "token_expired" && tokenManager.refreshToken) {
+      // Attempt to refresh
+      try {
+        await sdk.refreshAccessToken(tokenManager.refreshToken);
+        // Retry the request
+        const newToken = tokenManager.getAccessToken();
+        return await sdk.getUserInfo(newToken);
+      } catch (refreshError) {
+        console.error("Refresh failed, redirecting to login");
+        redirectToLogin();
+      }
+    }
+
+    throw error;
+  }
+}
+```
+
+### Network Errors
+
+```typescript
+import { sleep } from "ai-auth";
+
+async function retryableRequest<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3
+): Promise<T> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const authError = error as AuthError;
+
+      // Don't retry on auth errors
+      if (authError.statusCode === 401 || authError.statusCode === 403) {
+        throw error;
+      }
+
+      // Don't retry on client errors
+      if (authError.statusCode && authError.statusCode < 500) {
+        throw error;
+      }
+
+      // Last attempt
+      if (i === maxRetries - 1) {
+        throw error;
+      }
+
+      // Network error or server error - retry with backoff
+      const delay = Math.pow(2, i) * 1000;
+      console.log(`Request failed, retrying in ${delay}ms...`);
+      await sleep(delay);
+    }
+  }
+
+  throw new Error("Max retries exceeded");
+}
+
+// Usage
+const userInfo = await retryableRequest(() => sdk.getUserInfo(accessToken));
+```
+
+### CSRF Protection
+
+```typescript
+async function handleOAuthCallback(code: string, state: string) {
+  // Retrieve stored state
+  const storedState = await storage.getState();
+
+  try {
+    if (state !== storedState) {
+      throw new Error("State mismatch - possible CSRF attack");
+    }
+
+    const tokens = await sdk.exchangeCode(code, state, redirectUri);
+    return tokens;
+  } catch (error) {
+    const authError = error as AuthError;
+
+    if (authError.code === "state_mismatch" || error.message.includes("CSRF")) {
+      // Log security incident
+      await logSecurityIncident({
+        type: "csrf_attempt",
+        details: { code, receivedState: state, expectedState: storedState },
+      });
+
+      // Clear potentially compromised session
+      await storage.clear();
+
+      // Redirect to safe page
+      redirectToError("Security violation detected. Please try again.");
+      return null;
+    }
+
+    throw error;
+  } finally {
+    // Always clear stored state after use
+    await storage.clearState();
+  }
+}
+```
+
+## Error Recovery Strategies
+
+### Graceful Degradation
+
+```typescript
+class APIClient {
+  async getUserProfile(): Promise<UserProfile | null> {
+    try {
+      const token = await this.getValidToken();
+      const profile = await sdk.getAgentProfile(token);
+      return profile;
+    } catch (error) {
+      const authError = error as AuthError;
+
+      if (authError.code === "token_expired") {
+        console.warn("Session expired, user needs to re-login");
+        this.notifySessionExpired();
+        return null; // Graceful degradation
+      }
+
+      if (authError.statusCode && authError.statusCode >= 500) {
+        console.error("Server error, using cached profile");
+        return this.getCachedProfile(); // Fallback to cache
+      }
+
+      throw error; // Re-throw unexpected errors
+    }
+  }
+}
+```
+
+### Automatic Recovery
+
+```typescript
+class RobustAPIClient {
+  private retryCount = 0;
+  private maxRetries = 3;
+
+  async makeRequest<T>(requestFn: (token: string) => Promise<T>): Promise<T> {
+    while (this.retryCount < this.maxRetries) {
+      try {
+        const token = await this.getValidToken();
+        const result = await requestFn(token);
+        this.retryCount = 0; // Reset on success
+        return result;
+      } catch (error) {
+        const authError = error as AuthError;
+
+        if (authError.code === "token_expired") {
+          // Try to refresh
+          try {
+            await this.refreshToken();
+            this.retryCount++;
+            continue; // Retry with new token
+          } catch (refreshError) {
+            throw new Error("Session expired, please login again");
+          }
+        }
+
+        if (authError.statusCode && authError.statusCode >= 500) {
+          // Server error - retry with backoff
+          this.retryCount++;
+          if (this.retryCount < this.maxRetries) {
+            await sleep(Math.pow(2, this.retryCount) * 1000);
+            continue;
+          }
+        }
+
+        throw error; // Non-recoverable error
+      }
+    }
+
+    throw new Error("Max retries exceeded");
+  }
+}
+```
+
+### User Notification
+
+```typescript
+interface ErrorNotification {
+  title: string;
+  message: string;
+  action?: () => void;
+}
+
+function handleError(error: AuthError): ErrorNotification {
+  switch (error.code) {
+    case "token_expired":
+    case "refresh_failed":
+      return {
+        title: "Session Expired",
+        message: "Your session has expired. Please log in again.",
+        action: () => redirectToLogin(),
+      };
+
+    case "forbidden":
+      return {
+        title: "Access Denied",
+        message: "You don't have permission to perform this action.",
+        action: () => redirectToHome(),
+      };
+
+    case "state_mismatch":
+      return {
+        title: "Security Error",
+        message: "A security issue was detected. Please try again.",
+        action: () => redirectToLogin(),
+      };
+
+    default:
+      if (error.statusCode && error.statusCode >= 500) {
+        return {
+          title: "Server Error",
+          message:
+            "Our servers are experiencing issues. Please try again later.",
+          action: () => retryLastAction(),
+        };
+      }
+
+      return {
+        title: "Error",
+        message: error.description || "An unexpected error occurred.",
+        action: undefined,
+      };
+  }
+}
+
+// Usage
+try {
+  await sdk.getUserInfo(accessToken);
+} catch (error) {
+  const notification = handleError(error as AuthError);
+  showNotification(notification);
+}
+```
+
+## Logging and Monitoring
+
+### Error Logging
+
+```typescript
+class ErrorLogger {
+  static log(error: AuthError, context: any = {}) {
+    const errorData = {
+      timestamp: new Date().toISOString(),
+      code: error.code,
+      description: error.description,
+      statusCode: error.statusCode,
+      stack: error.stack,
+      context,
+    };
+
+    // Log to console
+    console.error("[Auth Error]", errorData);
+
+    // Send to monitoring service
+    if (typeof window !== "undefined") {
+      // Client-side monitoring (e.g., Sentry)
+      window.errorTracker?.captureException(error, {
+        extra: errorData,
+      });
+    } else {
+      // Server-side monitoring
+      logger.error("Auth error occurred", errorData);
+    }
+  }
+}
+
+// Usage
+try {
+  await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  ErrorLogger.log(error as AuthError, {
+    operation: "oauth_code_exchange",
+    userId: currentUser?.id,
+  });
+  throw error;
+}
+```
+
+### Metrics Collection
+
+```typescript
+class ErrorMetrics {
+  private static errors: Map<string, number> = new Map();
+
+  static track(error: AuthError) {
+    const key = error.code;
+    const count = this.errors.get(key) || 0;
+    this.errors.set(key, count + 1);
+  }
+
+  static getReport() {
+    return Array.from(this.errors.entries()).map(([code, count]) => ({
+      code,
+      count,
+    }));
+  }
+
+  static clear() {
+    this.errors.clear();
+  }
+}
+
+// Track errors
+try {
+  await sdk.getUserInfo(accessToken);
+} catch (error) {
+  ErrorMetrics.track(error as AuthError);
+  throw error;
+}
+
+// Get report
+console.log("Error Report:", ErrorMetrics.getReport());
+```
+
+## Complete Error Handling Example
+
+```typescript
+import { AgentSDK, TokenManager, sleep } from "ai-auth";
+import type { AuthError } from "ai-auth";
+
+class RobustAuthService {
+  private sdk: AgentSDK;
+  private tokenManager: TokenManager;
+  private refreshInProgress = false;
+
+  constructor() {
+    this.tokenManager = new TokenManager();
+    this.sdk = new AgentSDK({
+      agentId: process.env.AGENT_ID!,
+      onTokensReceived: (tokens) => this.tokenManager.setTokens(tokens),
+      onTokensRefreshed: (tokens) => this.tokenManager.setTokens(tokens),
+      onTokensRevoked: () => this.tokenManager.clear(),
+    });
+  }
+
+  async makeRequest<T>(
+    requestFn: (token: string) => Promise<T>,
+    options = { retries: 3, backoff: true }
+  ): Promise<T> {
+    let attempts = 0;
+
+    while (attempts < options.retries) {
+      try {
+        // Ensure token is valid
+        await this.ensureValidToken();
+
+        // Make request
+        const token = this.tokenManager.getAccessToken();
+        return await requestFn(token);
+      } catch (error) {
+        const authError = error as AuthError;
+        attempts++;
+
+        // Handle specific errors
+        if (this.shouldRetry(authError, attempts, options.retries)) {
+          if (options.backoff) {
+            await sleep(Math.pow(2, attempts - 1) * 1000);
+          }
+          continue;
+        }
+
+        // Log and re-throw
+        this.logError(authError);
+        throw this.createUserFriendlyError(authError);
+      }
+    }
+
+    throw new Error("Max retry attempts exceeded");
+  }
+
+  private async ensureValidToken() {
+    if (this.tokenManager.isExpired()) {
+      // Prevent multiple simultaneous refresh attempts
+      if (this.refreshInProgress) {
+        // Wait for refresh to complete
+        while (this.refreshInProgress) {
+          await sleep(100);
+        }
+        return;
+      }
+
+      if (!this.tokenManager.refreshToken) {
+        throw this.createError("session_expired", "Please log in again");
+      }
+
+      try {
+        this.refreshInProgress = true;
+        await this.sdk.refreshAccessToken(this.tokenManager.refreshToken);
+      } catch (error) {
+        this.tokenManager.clear();
+        throw this.createError("session_expired", "Your session has expired");
+      } finally {
+        this.refreshInProgress = false;
+      }
+    }
+  }
+
+  private shouldRetry(
+    error: AuthError,
+    attempts: number,
+    maxRetries: number
+  ): boolean {
+    // Don't retry if max attempts reached
+    if (attempts >= maxRetries) {
+      return false;
+    }
+
+    // Don't retry auth errors
+    if (error.code === "forbidden" || error.code === "state_mismatch") {
+      return false;
+    }
+
+    // Don't retry client errors (except token_expired)
+    if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+      return error.code === "token_expired";
+    }
+
+    // Retry server errors and network errors
+    return !error.statusCode || error.statusCode >= 500;
+  }
+
+  private logError(error: AuthError) {
+    console.error("[Auth Service Error]", {
+      code: error.code,
+      description: error.description,
+      statusCode: error.statusCode,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private createError(code: string, message: string): AuthError {
+    const error = new Error(message) as AuthError;
+    error.code = code;
+    error.description = message;
+    return error;
+  }
+
+  private createUserFriendlyError(error: AuthError): Error {
+    const userMessages: Record<string, string> = {
+      token_expired: "Your session has expired. Please log in again.",
+      refresh_failed: "Your session has expired. Please log in again.",
+      forbidden: "You don't have permission to perform this action.",
+      state_mismatch: "Security verification failed. Please try again.",
+      session_expired: "Your session has expired. Please log in again.",
+    };
+
+    const message =
+      userMessages[error.code] || error.description || "An error occurred";
+    return new Error(message);
+  }
+}
+
+export default new RobustAuthService();
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always catch and handle errors">
+    Never let authentication errors crash your application. Always use try-catch
+    blocks.
+  </Accordion>
+
+  <Accordion title="Provide user-friendly error messages">
+    Translate technical error codes into messages users can understand and act
+    on.
+  </Accordion>
+
+  <Accordion title="Log errors for debugging">
+    Log all authentication errors with context to help diagnose issues in
+    production.
+  </Accordion>
+
+  <Accordion title="Implement retry logic for transient errors">
+    Network errors and server errors should be retried with exponential backoff.
+  </Accordion>
+
+  <Accordion title="Handle token expiration gracefully">
+    Attempt to refresh expired tokens automatically before prompting users to
+    re-login.
+  </Accordion>
+
+  <Accordion title="Monitor error rates">
+    Track error frequencies to identify systemic issues early.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Token Refresh" icon="rotate" href="/guides/token-refresh">
+    Learn about token refresh strategies
+  </Card>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Explore all SDK methods
+  </Card>
+</CardGroup>

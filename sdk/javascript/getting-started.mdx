@@ -1,0 +1,197 @@
+---
+title: "Getting Started"
+description: "Learn how to use the Auth-Agent JavaScript/TypeScript SDK for server-side OAuth 2.1 authentication"
+---
+
+# Getting Started with JavaScript SDK
+
+The Auth-Agent SDK is a complete server-side TypeScript/JavaScript SDK for implementing OAuth 2.1 with PKCE authentication for AI agents.
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install ai-auth
+```
+
+```bash yarn
+yarn add ai-auth
+```
+
+```bash pnpm
+pnpm add ai-auth
+```
+
+</CodeGroup>
+
+## Quick Start
+
+### 1. Initialize the SDK
+
+```typescript
+import { AgentSDK } from "ai-auth";
+
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  agentSecret: "your-agent-secret", // Optional, for confidential clients
+  serverUrl: "https://api.auth-agent.com",
+  timeout: 10000,
+  onTokensReceived: async (tokens) => {
+    // Store tokens in your preferred storage
+    await yourStorage.saveTokens(tokens);
+  },
+  onTokensRefreshed: async (tokens) => {
+    // Update stored tokens
+    await yourStorage.updateTokens(tokens);
+  },
+  onTokensRevoked: async () => {
+    // Clear stored tokens
+    await yourStorage.clearTokens();
+  },
+});
+```
+
+### 2. Start OAuth Flow
+
+```typescript
+// Generate authorization URL
+const { url, codeVerifier, state } = await sdk.getAuthorizationUrl({
+  redirectUri: "https://your-app.com/callback",
+  scope: "openid profile email agent",
+});
+
+// Redirect user to authorization URL
+console.log("Visit:", url);
+
+// Store codeVerifier and state for later use
+await storage.save({ codeVerifier, state });
+```
+
+### 3. Exchange Authorization Code for Tokens
+
+```typescript
+// In your callback handler
+const code = req.query.code;
+const state = req.query.state;
+const redirectUri = "https://your-app.com/callback";
+
+const tokens = await sdk.exchangeCode(code, state, redirectUri);
+
+// Tokens are automatically passed to onTokensReceived callback
+// Access token, refresh token, and ID token are now stored
+```
+
+### 4. Make Authenticated Requests
+
+```typescript
+// Get access token from your storage
+const accessToken = await storage.getAccessToken();
+
+// Get user info
+const userInfo = await sdk.getUserInfo(accessToken);
+
+// Get agent profile
+const profile = await sdk.getAgentProfile(accessToken);
+
+// Send events
+await sdk.sendEvent(accessToken, {
+  event: "click",
+  selector: "#button",
+  site: "example.com",
+});
+```
+
+### 5. Refresh Tokens
+
+```typescript
+// When access token expires
+const refreshToken = await storage.getRefreshToken();
+const newTokens = await sdk.refreshAccessToken(refreshToken);
+
+// New tokens are automatically passed to onTokensRefreshed callback
+```
+
+## Using Token Manager
+
+The SDK includes a built-in `TokenManager` for simple token storage:
+
+```typescript
+import { AgentSDK, TokenManager } from "ai-auth";
+
+const tokenManager = new TokenManager();
+
+const sdk = new AgentSDK({
+  agentId: "your-agent-id",
+  serverUrl: "https://api.auth-agent.com",
+  onTokensReceived: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRefreshed: (tokens) => tokenManager.setTokens(tokens),
+  onTokensRevoked: () => tokenManager.clear(),
+});
+
+// After OAuth flow
+const tokens = await sdk.exchangeCode(code, state, redirectUri);
+
+// Use token manager
+if (!tokenManager.isExpired()) {
+  const accessToken = tokenManager.getAccessToken();
+  const userInfo = await sdk.getUserInfo(accessToken);
+}
+```
+
+## Agent Registration
+
+Before using OAuth, register your agent:
+
+```typescript
+const response = await sdk.registerAgent({
+  agent_id: "my-ai-agent",
+  agent_secret: "secure-random-secret",
+  model_name: "gpt-4",
+  owner_name: "John Doe",
+  owner_email: "john@example.com",
+});
+
+console.log(response.message); // "Agent registered successfully"
+```
+
+## Error Handling
+
+All SDK methods throw `AuthError` objects with detailed information:
+
+```typescript
+import type { AuthError } from "ai-auth";
+
+try {
+  const tokens = await sdk.exchangeCode(code, state, redirectUri);
+} catch (error) {
+  const authError = error as AuthError;
+  console.error("Error code:", authError.code);
+  console.error("Description:", authError.description);
+  console.error("Status:", authError.statusCode);
+
+  // Handle specific errors
+  if (authError.code === "token_expired") {
+    // Refresh token
+  } else if (authError.code === "state_mismatch") {
+    // Possible CSRF attack
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/sdk/javascript/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="AgentSDK Methods" icon="code" href="/sdk/javascript/agent-sdk">
+    Explore all available SDK methods
+  </Card>
+  <Card title="Token Manager" icon="key" href="/sdk/javascript/token-manager">
+    Learn about token management
+  </Card>
+  <Card title="Utilities" icon="wrench" href="/sdk/javascript/utilities">
+    Utility functions for PKCE, JWT parsing, and more
+  </Card>
+</CardGroup>

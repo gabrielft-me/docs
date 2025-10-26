@@ -1,0 +1,11 @@
+<svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logo Icon -->
+  <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="#818cf8" opacity="0.9"/>
+  <path d="M4 28L20 36L36 28V20L20 28L4 20V28Z" fill="#818cf8" opacity="0.7"/>
+  <circle cx="20" cy="20" r="3" fill="#818cf8"/>
+  
+  <!-- Text -->
+  <text x="44" y="16" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#f1f5f9">Auth-Agent</text>
+  <text x="44" y="30" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#94a3b8">OAuth 2.1 for AI</text>
+</svg>
+
